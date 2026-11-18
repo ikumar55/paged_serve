@@ -170,6 +170,41 @@ estimates are recorded here as if they were results.
   dtype) before being counted as engine errors.
 - **Measured effect:** n/a.
 
+### D-014 Load generator design
+
+- **Status:** decided.
+- **Decision:**
+  - **Open loop.** Requests are sent at their Poisson arrival times whether or not earlier ones
+    finished. A slow server then shows queueing delay instead of silently throttling the load.
+    Every result records how late it was sent; if p99 lag exceeds 50 ms the run is flagged as
+    generator-limited, because its latencies are understated.
+  - **Seeded, independent streams.** Arrivals, prompt lengths, output lengths and token contents
+    use separate random streams from one seed, so changing one distribution does not reshuffle
+    the others and any workload can be regenerated exactly.
+  - **Token-id prompts, forced output length.** Prompts are lists of token ids (exact lengths, no
+    tokenizer) and requests set `ignore_eos`, so the output-length distribution is what was asked
+    for rather than whatever the model decides. Lengths are lognormal with a median, a sigma and
+    clipping bounds.
+  - **OpenAI-style streaming completions.** The same client drives this engine, vLLM and, later,
+    the router. Token counts come from the server's `usage` when present; otherwise stream events
+    are counted and the result is marked as such.
+  - **Results are write-once JSONL** (meta line, one line per request, summary line), with an
+    explicit schema version. The writer refuses to overwrite an existing file.
+  - **Publishable by construction.** The server address is redacted from the recorded command,
+    the home directory is replaced with `~`, and client errors keep only the exception type. A run
+    without `--server-env` (the environment capture from the GPU machine) prints a warning that
+    the result must not be published, because the client machine's hardware is not the server's.
+  - Latency statistics cover successful requests only; failures are counted by cause. Percentiles
+    use linear interpolation and every distribution reports its sample count.
+- **Why:** These are the usual ways a load test quietly flatters the system under test
+  (coordinated omission, retries hidden in averages, unreproducible workloads) or leaks details
+  that should not be published.
+- **Measured effect:** Calibration of the tool itself, not of any engine. Against a local test
+  server configured with a 50 ms first-token delay and 20 ms between tokens, one local run
+  measured TTFT p50 53.8 ms and inter-token p50 20.6 ms (60 requests), so the client plus local
+  socket overhead is on the order of a few milliseconds. Offered 20 and 40 req/s, it sent on
+  schedule (no generator-saturation flag).
+
 ## Open verification items
 
 - Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the downloaded `config.json`
