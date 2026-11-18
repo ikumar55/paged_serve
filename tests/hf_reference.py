@@ -52,9 +52,28 @@ def to_hf_config(cfg: LlamaConfig) -> transformers.LlamaConfig:
     return transformers.LlamaConfig(**kwargs)
 
 
+def randomize_weights(model: LlamaForCausalLM, seed: int) -> None:
+    """Give every weight a scale that makes logits order one.
+
+    Hugging Face's default initialization (std 0.02) produces near-zero logits, which would let
+    real bugs hide inside a loose absolute tolerance.
+    """
+    generator = torch.Generator().manual_seed(seed)
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            noise = torch.randn(param.shape, generator=generator)
+            if param.ndim == 1:  # RMSNorm scales
+                param.copy_(1.0 + 0.1 * noise)
+            elif "embed_tokens" in name:
+                param.copy_(noise)
+            else:
+                param.copy_(noise / param.shape[1] ** 0.5)
+
+
 def build_reference_model(cfg: LlamaConfig, seed: int = 0) -> LlamaForCausalLM:
     """A deterministic random-weight fp32 reference model on CPU, in eval mode."""
     torch.manual_seed(seed)
     model = LlamaForCausalLM(to_hf_config(cfg)).to(torch.float32)
+    randomize_weights(model, seed)
     model.eval()
     return model
