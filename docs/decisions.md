@@ -39,7 +39,13 @@ estimates are recorded here as if they were results.
   public weights. Hugging Face model classes are used only in `tests/` and baselines.
 - **Why:** The project is about the serving internals; wrapping a library model would hide them.
   Having a deterministic reference model in tests makes every later change checkable.
-- **Measured effect:** n/a.
+- **Measured effect:** On four tiny random-weight configurations (plain, tied embeddings,
+  Llama-3 RoPE scaling, both), CPU, fp32, batch 3 by 21 tokens, the max absolute logit difference
+  against the Hugging Face reference was 0.0 (bit-identical) in a local run. This is a
+  tiny-model check only; the real-model comparison waits for the weights. The test enforces a
+  bound of 1e-4, tighter than the 1e-3 target in D-010. As a sanity check that the tests can
+  fail, deliberately breaking the model gave: RoPE scaling dropped 6.15, RoPE theta off by 1%
+  0.043, RMSNorm epsilon 1e-5 to 1e-3 0.036 (max absolute logit difference).
 
 ### D-003 Attention path: gather first, CUDA graphs before custom kernels
 
@@ -133,6 +139,35 @@ estimates are recorded here as if they were results.
   multi-replica results; the fallback is a speculative decoding study. Neither starts before the
   router gate is met.
 - **Why:** Keeps the core scope intact and picks the extension with evidence about schedule risk.
+- **Measured effect:** n/a.
+
+### D-012 Forward-pass implementation notes
+
+- **Status:** decided.
+- **Decision:**
+  - RoPE cos and sin tables are computed in float32 by a plain object, not an `nn.Module`, so
+    casting the model to bf16 cannot downcast the rotary frequencies. A test checks this.
+  - Prefill with cached tokens builds an explicit causal mask over (cached + new) positions;
+    decode uses no mask, and a prompt with no cache uses SDPA's built-in causal flag.
+  - Grouped-query attention uses SDPA's native grouped-query support, with no key/value copies.
+  - The weight loader refuses partial loads (missing, unexpected or mis-shaped tensors) and
+    accepts tied checkpoints that omit `lm_head.weight`.
+- **Why:** Each of these is a way a Llama 3.x port can silently produce plausible but wrong
+  output.
+- **Measured effect:** n/a (correctness only).
+
+### D-013 Reference-comparison pitfalls
+
+- **Status:** decided; applies to all later correctness tests and baselines.
+- **Decision:** When comparing generation with Hugging Face, always pass an explicit attention
+  mask. Treat Hugging Face's own full-recompute greedy loop, not just `generate()`, as the ground
+  truth when investigating a mismatch.
+- **Why:** In a test run, `generate()` disagreed with both this engine and Hugging Face's own
+  uncached logits on a 30-token prompt. Cause: without an attention mask, `generate()` infers one
+  from `pad_token_id` and silently masks every prompt token equal to that id. A test harness
+  bug, not an engine bug. With an explicit mask, all prompts match. This also confirms that
+  mismatches should be investigated at the first diverging position (top-two logit gap, mask,
+  dtype) before being counted as engine errors.
 - **Measured effect:** n/a.
 
 ## Open verification items
