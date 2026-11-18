@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pagedserve"
+version = "0.0.1"
+description = "A small LLM inference engine (paged KV cache, continuous batching, prefix caching) and a prefix-aware router."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "torch",
+]
+
+[project.optional-dependencies]
+# Reference implementations used only by tests and benchmarks (never by the engine itself).
+dev = [
+    "transformers",
+    "pytest",
+    "ruff",
+    "mypy",
+]
+
+[tool.setuptools.packages.find]
+include = ["engine*", "router*", "bench*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["engine", "router", "bench"]
+# torch and transformers ship their own types; keep third-party noise out of our results.
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "gpu: needs a CUDA GPU; run by hand on the GPU box (deselected in CI)",
+]

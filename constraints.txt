@@ -1,0 +1,9 @@
+# Exact versions of the direct dependencies the project was developed and tested with.
+# `torch==X` also matches local builds such as `X+cu126`, so GPU machines can use this too.
+# Every benchmark result file additionally records the versions actually in use.
+torch==2.15.0
+transformers==5.23.0
+numpy==2.5.5
+pytest==9.2.0
+ruff==0.17.5
+mypy==2.4.1

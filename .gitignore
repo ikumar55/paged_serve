@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+build/
+dist/
+
+# Secrets and model weights: never commit these
+.env
+.env.*
+*.pem
+*.key
+hf_token*
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+models/
+.cache/
+
+# Local tooling / editor state
+.claude/
+.vscode/
+.idea/
+.DS_Store
+
+# Planning notes kept outside the repo
+PROJECT_PLAN*.md
+
+# Raw profiler output (large); curated results go in results/
+*.nsys-rep
+*.qdrep
+*.ncu-rep
+profiles/
