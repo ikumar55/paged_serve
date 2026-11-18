@@ -205,6 +205,36 @@ estimates are recorded here as if they were results.
   socket overhead is on the order of a few milliseconds. Offered 20 and 40 req/s, it sent on
   schedule (no generator-saturation flag).
 
+### D-015 Hugging Face baseline: static batching behind the same API
+
+- **Status:** decided; real-model numbers pending (needs the model weights and the GPU).
+- **Decision:** Baseline (1) is `model.generate` behind a small FastAPI server
+  (`bench.baselines.hf_server`) that speaks the same streaming `/v1/completions` as everything
+  else. Requests queue FIFO; a worker takes up to `max_batch_size` of them (waiting at most a
+  batch window after the first), left-pads the prompts, and runs the whole batch to completion.
+  A request that arrives mid-batch waits for the next batch, and every sequence holds its slot
+  until the longest in its batch ends. Tokens stream step by step through a `generate` streamer, so
+  TTFT includes queueing, the batch window and prefill but not the rest of the batch.
+- **Why:** This is what a competent person would build with the standard library, and its two
+  costs (waiting for the next batch, wasted slots) are exactly what continuous batching removes.
+  The server reports both: `/info` includes batch-size counts and the fraction of decode slots
+  spent on already-finished sequences, and the load generator records it before and after a run.
+- **Caveats to state wherever its numbers appear:**
+  - Greedy decoding and token-id prompts only; token events carry the id rather than detokenized
+    text, which slightly favors this baseline over servers that detokenize.
+  - `max_batch_size` and the batch window are tuning knobs. Before any comparison they must be
+    swept and the best setting reported alongside the others, not a single arbitrary choice.
+  - Single GPU, one batch at a time, bf16 on the GPU box.
+- **Bug found while building it:** passing `eos_token_id=None` in the generation config does not
+  disable EOS stopping; `generate()` fills in the model's default, so requests that ask to ignore
+  EOS still stopped early and fell short of their forced output length. Fixed by passing an id
+  outside the vocabulary, which can never be generated. A test guards this, because the load
+  generator's forced output lengths depend on it.
+- **Measured effect:** not yet measured on a real model. A smoke run against a tiny random-weight
+  model on CPU (40 requests at 40 req/s, 30 ms batch window, 4 slots) gave a median TTFT of about
+  35 ms, i.e. the batch window dominates at low load, and a mean batch size of 2.1. That checks the
+  tooling, not performance.
+
 ## Open verification items
 
 - Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the downloaded `config.json`

@@ -43,4 +43,17 @@ python -m bench.loadgen plot results/my-engine-rate*.jsonl --out-dir results/plo
 
 Result files are never overwritten, and the server address is redacted from the recorded command.
 
+## Baselines
+
+`bench.baselines.hf_server` serves a Hugging Face model with `generate` and static batching behind the same API, so the load generator can compare it with this engine and with vLLM:
+
+```bash
+python -m bench.baselines.hf_server --model MODEL_ID_OR_PATH --dtype bfloat16 \
+    --max-batch-size 8 --batch-window-ms 20 --port 8000
+
+python -m bench.loadgen run --url http://localhost:8000 --model MODEL --rate 4 --duration 60 \
+    --fetch-server-info --label hf-static --server-env results/env-<commit>.json \
+    --out results/hf-static-rate4.jsonl
+```
+
 Design decisions, with the measured effect of each change, are tracked in [`docs/decisions.md`](docs/decisions.md).
