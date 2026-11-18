@@ -72,7 +72,9 @@ def test_wilson_interval() -> None:
     assert 0.43 < low < 0.5 < high < 0.57
 
 
-def result(index: int, kind: str, divergence: int | None, max_diff: float = 1e-5) -> PromptResult:
+def result(
+    index: int, kind: str, divergence: int | None, max_diff: float = 1e-5, ties: int = 0
+) -> PromptResult:
     return PromptResult(
         index=index,
         kind=kind,
@@ -94,14 +96,15 @@ def result(index: int, kind: str, divergence: int | None, max_diff: float = 1e-5
                 }
             ]
         ),
-        reference_self_mismatches=0,
+        reference_self_mismatches=ties,
+        exact_tie_steps=ties,
         max_logit_diff=max_diff,
         ref_logit_gaps=[0.5] * (N_TOKENS - 1) + [1e-6],
     )
 
 
 def test_summary_counts_and_reports_risk() -> None:
-    results = [result(0, "prose", None), result(1, "prose", 6), result(2, "code", None)]
+    results = [result(0, "prose", None, ties=2), result(1, "prose", 6), result(2, "code", None)]
     summary = summarize(results, N_TOKENS)
     free, forced = summary["free_running"], summary["teacher_forced"]
     assert free["exact_match"] == 2
@@ -113,6 +116,7 @@ def test_summary_counts_and_reports_risk() -> None:
     assert abs(free["mean_matched_prefix_fraction"] - (1 + 0.5 + 1) / 3) < 1e-9
     assert forced["steps"] == 3 * N_TOKENS and forced["top1_disagreements"] == 1
     assert forced["steps_at_risk"] == 3  # one near-tie step per prompt, gap 1e-6 <= 2e-5
+    assert forced["exact_tie_steps"] == 2 and summary["reference_self_mismatches"] == 2
     assert "free-running exact match: 2/3" in format_summary(summary)
 
 
@@ -132,6 +136,7 @@ def test_matching_models_agree_on_every_token() -> None:
         assert len(outcome.reference_tokens) == N_TOKENS  # EOS handling did not stop generation
         assert outcome.first_divergence is None
         assert outcome.teacher_forced_disagreements == []
+        assert outcome.reference_self_mismatches == 0
         assert outcome.max_logit_diff < 1e-4
 
 

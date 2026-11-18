@@ -7,9 +7,11 @@ ignored, so every output has the same length). Two views are reported, because o
   differ? This is what a user sees, but one near-tie flip changes every later token, so it
   exaggerates disagreement.
 * **Teacher-forced**: both models read the *reference's* output as input and we compare their
-  top-1 prediction at every step. A flip is then a single step, not a cascade, and we can measure
-  the reference's logit gap between its choice and the engine's at that step. Real bugs flip
-  tokens with a large gap; numerical noise flips only near-ties.
+  top-1 prediction (forward pass against forward pass) at every step. A flip is then a single
+  step, not a cascade, and we can measure the reference's logit gap between its choice and the
+  engine's at that step. Real bugs flip tokens with a large gap; numerical noise flips only
+  near-ties. The reference's own ``generate`` can disagree with its own forward pass at exact
+  ties (seen in bf16); that is reported separately as ``reference_self_mismatches``.
 
 For any disagreeing step the reference's gap ``g`` satisfies ``g <= 2 * step_max_logit_diff``
 (each logit moves by at most the step's maximum difference), so the useful number is how large the
@@ -74,6 +76,7 @@ class PromptResult:
     gap_at_first_divergence: float | None  # reference logit gap at that step (same context)
     teacher_forced_disagreements: list[dict[str, Any]]
     reference_self_mismatches: int  # steps where the reference's full forward disagrees with itself
+    exact_tie_steps: int  # steps where the reference's two best logits are exactly equal
     max_logit_diff: float
     ref_logit_gaps: list[float]  # top-1 minus top-2 reference logit at every step
 
@@ -189,16 +192,20 @@ def evaluate_prompt(
     gaps = top2[:, 0] - top2[:, 1]
     step_diff = (eng_logits - ref_logits).abs().amax(-1)
 
+    # Forward pass against forward pass, so only implementation differences are counted. Whether
+    # the reference's own generate (KV cache) agrees with its own full forward is a separate
+    # number (reference_self_mismatches); in bf16 it differs at exact ties.
     disagreements = []
-    for step in (eng_arg != ref_t).nonzero().flatten().tolist():
+    for step in (eng_arg != ref_arg).nonzero().flatten().tolist():
         chosen = int(eng_arg[step])
+        preferred = int(ref_arg[step])
         disagreements.append(
             {
                 "step": step,
-                "reference_token": ref_tokens[step],
+                "reference_token": preferred,
                 "engine_token": chosen,
                 "reference_logit_gap": float(
-                    ref_logits[step, ref_tokens[step]] - ref_logits[step, chosen]
+                    ref_logits[step, preferred] - ref_logits[step, chosen]
                 ),
                 "step_max_logit_diff": float(step_diff[step]),
             }
@@ -223,6 +230,7 @@ def evaluate_prompt(
         gap_at_first_divergence=gap_at_divergence,
         teacher_forced_disagreements=disagreements,
         reference_self_mismatches=int((ref_arg != ref_t).sum()),
+        exact_tie_steps=int((gaps == 0).sum()),
         max_logit_diff=float(step_diff.max()),
         ref_logit_gaps=[round(g, 4) for g in gaps.tolist()],
     )
@@ -281,6 +289,7 @@ def summarize(results: Sequence[PromptResult], n_tokens: int) -> dict[str, Any]:
             ),
             "steps_at_risk": at_risk,
             "at_risk_definition": "reference top-1/top-2 gap <= 2 * max_logit_diff",
+            "exact_tie_steps": sum(r.exact_tie_steps for r in results),
         },
         "max_logit_diff": max_diff,
         "mean_per_prompt_max_logit_diff": (
@@ -311,7 +320,9 @@ def format_summary(summary: dict[str, Any]) -> str:
     lines.append(
         f"max logit diff over all steps: {summary['max_logit_diff']:.3e}; "
         f"largest reference gap among disagreements: {forced['largest_gap_among_disagreements']}; "
-        f"reference self-mismatches: {summary['reference_self_mismatches']}"
+        f"reference self-mismatches (its generate vs its own forward): "
+        f"{summary['reference_self_mismatches']}; steps with an exact top-2 tie: "
+        f"{forced['exact_tie_steps']}"
     )
     return "\n".join(lines)
 
