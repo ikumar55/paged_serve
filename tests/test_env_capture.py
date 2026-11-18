@@ -2,12 +2,15 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+import pytest
+
 from bench.env_capture import (
     capture_environment,
     main,
     output_filename,
     parse_nvcc_release,
     parse_nvidia_smi,
+    redact_home,
 )
 
 FAKE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -65,6 +68,17 @@ def test_capture_without_any_tools_degrades_gracefully() -> None:
     assert env["git"] == {"commit": None, "dirty": None}
 
 
+def test_command_does_not_reveal_the_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: an absolute --out path put the account name into published result files."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    out = tmp_path / "work" / "out"
+    env = capture_environment(run=fake_run, args=["--out", str(out)])
+    assert env["command"] == f"python -m bench.env_capture --out ~{str(out)[len(str(tmp_path)) :]}"
+    assert str(tmp_path) not in json.dumps(env)
+
+
 def test_capture_records_no_machine_identifiers() -> None:
     env = capture_environment(run=fake_run)
     forbidden = {"hostname", "node", "user", "username", "ip", "uuid", "serial"}
@@ -88,4 +102,4 @@ def test_main_writes_file(tmp_path: Path, capsys: object) -> None:
     assert len(written) == 1
     data = json.loads(written[0].read_text())
     assert "packages" in data
-    assert data["command"] == f"python -m bench.env_capture --out {out}"
+    assert data["command"] == redact_home(f"python -m bench.env_capture --out {out}")

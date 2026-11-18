@@ -115,12 +115,19 @@ def torch_info() -> dict[str, Any]:
     return info
 
 
+def redact_home(text: str) -> str:
+    """Replace the user's home directory with ``~``: an absolute path argument would otherwise put
+    the account name into a file that is meant to be published."""
+    home = str(Path.home())
+    return text.replace(home, "~") if len(home) > 1 else text
+
+
 def capture_environment(run: Runner = run_command, args: Sequence[str] = ()) -> dict[str, Any]:
     nvidia = run(NVIDIA_SMI_QUERY)
     nvcc = run(["nvcc", "--version"])
     return {
         "captured_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "command": " ".join(["python", "-m", "bench.env_capture", *args]),
+        "command": redact_home(" ".join(["python", "-m", "bench.env_capture", *args])),
         "git": git_info(run),
         "python": {
             "version": platform.python_version(),
