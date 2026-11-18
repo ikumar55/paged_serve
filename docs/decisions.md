@@ -57,7 +57,7 @@ estimates are recorded here as if they were results.
   the model: dropping RoPE scaling changes logits by 0.086 on a 32-token prompt and 0.78 on a
   2048-token prompt, and a 1% error in RoPE theta by 0.0054 and 0.028, all above 1e-3, which is
   why a long prompt is included. This is a small sample; the planned 200-prompt, 64-token
-  evaluation is run by `bench/greedy_eval.py` (results below once recorded).
+  evaluation is run by `bench/greedy_eval.py` (results below).
 
   **Correction: the GPU paragraph that follows is superseded and must not be cited.** The GPU
   it was measured on was later found to return different results for identical inputs. An
@@ -85,6 +85,32 @@ estimates are recorded here as if they were results.
   0.0 over the 50 prompts). Both call the same kernels at these shapes, so that is an observation
   about this setup, not a guarantee, and the 1e-3 bound stays the contract. One run each; the
   prompts are the ones used for the CPU numbers above.
+
+  **Real model on GPU, re-measured on a GPU that passed the self-test (D-016):** one NVIDIA RTX
+  A6000 (48 GB, driver 580.126.20), torch 2.15.0+cu132, TF32 disabled. Again a workstation GPU,
+  not a datacenter one. `make test-gpu` gave the same numbers on three runs. In fp32 the max
+  absolute logit difference against the Hugging Face fp32 CPU reference was **7.9e-4** over the
+  50 prompts (79% of the 1e-3 target) and 1.8e-5 on the 2048-token prompt; against Hugging Face on
+  the same GPU it was exactly 0.0. The size of the first number is explained by a float64
+  reference (`tests/fp64_truth_report.py`, largest logit 31.5): against it, Hugging Face fp32 on
+  CPU is off by at most 3.7e-4 (median 2.6e-5), Hugging Face fp32 on this GPU by 4.2e-4 (median
+  3.0e-5) and this engine on the GPU by 4.2e-4 (median 3.0e-5); on the 2048-token prompt 6.7e-6,
+  1.8e-5 and 1.8e-5. So any fp32 implementation, CPU or GPU, is up to about 4e-4 from the truth,
+  and two of them differ by up to about the sum, which is the 7.9e-4. This corrects the earlier
+  reading of that difference as a property of the GPU. It also means the 1e-3 target leaves a
+  margin of about 2.5 times the error of a single implementation, and that matching Hugging
+  Face here means being as accurate as it is, not sharing its mistakes.
+
+  **Greedy decoding, 200 prompts x 64 tokens** (`bench/greedy_eval.py`, commit d95f200, result files
+  in `results/`): 80 prose and 60 code windows of this repository's own text plus 60 random-token
+  sequences (the ids and a hash of the set are stored in each file), engine against Hugging Face
+  `generate` on the same GPU and in the same dtype, EOS disabled so every output has 64 tokens.
+  fp32: 200 of 200 outputs identical (95% interval 98.1% to 100%), the top-1 prediction agrees at
+  all 12,800 teacher-forced steps, and the max logit difference over all of them is 0.0. bf16:
+  200 of 200 identical, 12,800 of 12,800 steps agree, max logit difference 0.0. That is one
+  model, one GPU and one prompt set, so it is a measurement and not a guarantee. The GPU may be
+  shared with other users (utilization of 12 to 23% appeared with no visible process of ours),
+  which cannot affect these correctness results but would affect any latency measurement.
 
 ### D-003 Attention path: gather first, CUDA graphs before custom kernels
 
@@ -180,6 +206,18 @@ estimates are recorded here as if they were results.
   Hugging Face in bf16 had 0.9602 and 0.0367. The gap between them is about two tokens' worth
   and smaller than the hardware-to-hardware movement above, so it is not evidence that either
   is better.
+
+  Re-measured on the RTX A6000 (D-002, same 50 prompts): this engine in bf16 had top-1 agreement
+  0.9602 and mean absolute difference 0.0402, and Hugging Face in bf16 had 0.9626 and 0.0421,
+  again too close to rank. A bf16 effect that matters for comparisons shows up in greedy
+  decoding: on 217 of 12,800 steps (1.7%) the two best logits were exactly equal, and at 112
+  steps Hugging Face's own `generate` (KV cache) and its own full forward pass broke the tie
+  differently, while this engine matched Hugging Face's forward pass at every step (max logit
+  difference 0.0). So bf16 greedy output is not well defined at exact ties. Comparing systems in
+  bf16 therefore has to break ties the same way or report them, and `bench/greedy_eval.py` now
+  counts them. An earlier version of that tool charged Hugging Face's self-inconsistency to the
+  engine (107 spurious "disagreements" on a different prompt set); that was a flaw in the metric,
+  fixed before any result was published.
 
 ### D-011 One extension, chosen after the Phase 2 gate
 
@@ -309,6 +347,9 @@ estimates are recorded here as if they were results.
   different values on every repeat, two software builds) points at a hardware fault, not at this
   engine or PyTorch, but that is an inference: it has not yet been reproduced on a second GPU
   or ruled out for that GPU with a different driver. Results from that machine are discarded.
+  The same software (torch 2.15.0+cu132) on an RTX A6000 passed every check in three runs: 0 of
+  300 differing repeats for each operation and a `silu` error against float64 of 1.0e-7, which
+  makes a software cause much less likely.
 
 ## Open verification items
 

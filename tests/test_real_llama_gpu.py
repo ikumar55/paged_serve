@@ -5,9 +5,12 @@ and the CPU-only machines never run it.
 
 The golden reference is Hugging Face in fp32 on CPU, the same one ``test_real_llama.py`` uses.
 Because a GPU legitimately differs from the CPU in the last bits (different matmul kernels and
-accumulation orders), every check also reports the *noise floor*: how far Hugging Face's own GPU
-output is from its own CPU output on the same prompts. An engine difference is only meaningful
-relative to that floor, so the floor is printed and recorded next to each result.
+accumulation orders), every check also reports the *floor*: how far Hugging Face's own GPU output
+is from its own CPU output on the same prompts. An engine difference is only meaningful relative
+to that floor, so it is printed and recorded next to each result. The floor is ordinary fp32
+error, not something specific to the GPU: measured against a float64 reference, each fp32
+implementation (CPU or GPU) is off by about 4e-4 at worst, so two of them differ by up to about
+twice that (see docs/decisions.md, D-002, and ``tests/fp64_truth_report.py``).
 
 TF32 is switched off for the duration so that "fp32" really means fp32 on Ampere and newer GPUs.
 """
@@ -80,7 +83,7 @@ def prompts() -> list[list[int]]:
 
 @pytest.fixture(scope="module")
 def references(prompts: list[list[int]]) -> dict[str, Any]:
-    """Hugging Face logits: fp32 on CPU (golden), fp32 on GPU (noise floor), bf16 on GPU."""
+    """Hugging Face logits: fp32 on CPU (golden), fp32 on GPU (the floor), bf16 on GPU."""
     model = AutoModelForCausalLM.from_pretrained(MODEL_DIR, dtype=torch.float32).eval()
     long_ids = long_prompt_ids()
     with torch.no_grad():
@@ -136,7 +139,7 @@ def test_gpu_fp32_logits_match_cpu_reference_on_fifty_prompts(
         f"\nfp32, 50 prompts, max abs logit difference:"
         f"\n  engine(GPU) vs HF(CPU) : {vs_cpu:.3e}   <- contract, target {FP32_LOGIT_TARGET:.0e}"
         f"\n  engine(GPU) vs HF(GPU) : {vs_hf_gpu:.3e}"
-        f"\n  HF(GPU)     vs HF(CPU) : {floor:.3e}   <- noise floor of the GPU itself"
+        f"\n  HF(GPU)     vs HF(CPU) : {floor:.3e}   <- floor: two fp32 implementations differ"
     )
     assert vs_cpu < FP32_LOGIT_TARGET
 
@@ -153,7 +156,7 @@ def test_gpu_fp32_logits_match_cpu_reference_on_a_long_prompt(
     print(
         f"\nfp32, {LONG_PROMPT_TOKENS}-token prompt, max abs logit difference:"
         f"\n  engine(GPU) vs HF(CPU) : {vs_cpu:.3e}   <- contract, target {FP32_LOGIT_TARGET:.0e}"
-        f"\n  HF(GPU)     vs HF(CPU) : {floor:.3e}   <- noise floor of the GPU itself"
+        f"\n  HF(GPU)     vs HF(CPU) : {floor:.3e}   <- floor: two fp32 implementations differ"
     )
     assert vs_cpu < FP32_LOGIT_TARGET
 
