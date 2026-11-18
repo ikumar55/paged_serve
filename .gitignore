@@ -32,6 +32,7 @@ models/
 
 # Planning notes kept outside the repo
 PROJECT_PLAN*.md
+LOCAL_*.md
 
 # Raw profiler output (large); curated results go in results/
 *.nsys-rep
