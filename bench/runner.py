@@ -50,6 +50,7 @@ async def warm_up(
     *,
     vocab_size: int,
     timeout_s: float,
+    min_token_id: int = 1000,
     prompt_tokens: int = 32,
     output_tokens: int = 8,
 ) -> None:
@@ -62,7 +63,8 @@ async def warm_up(
             id=index,
             arrival_s=0.0,
             prompt_token_ids=[
-                1000 + (index + i) % (vocab_size - 1000) for i in range(prompt_tokens)
+                min_token_id + (index + i) % (vocab_size - min_token_id)
+                for i in range(prompt_tokens)
             ],
             max_tokens=output_tokens,
         )

@@ -141,3 +141,45 @@ def test_end_to_end_over_a_real_socket(tmp_path: Path) -> None:
     assert summary is not None
     assert summary["itl_s"]["p50"] >= 0.015
     assert summary["generator_saturated"] is False
+
+
+def info_handler(request: httpx.Request) -> httpx.Response:
+    if request.method == "GET" and request.url.path == "/info":
+        return httpx.Response(200, json={"server": "fake", "stats": {"requests": 7}})
+    return echo_handler()(request)
+
+
+def test_fetch_server_info_records_before_and_after(tmp_path: Path) -> None:
+    out = tmp_path / "info.jsonl"
+    argv = ["run", "--url", "http://x", "--model", "m", "--rate", "200", "--num-requests", "5",
+            "--warmup", "0", "--out", str(out), "--fetch-server-info", *SMALL]  # fmt: skip
+    assert main(argv, transport=httpx.MockTransport(info_handler)) == 0
+    meta, _, _ = read_results(out)
+    expected = {"server": "fake", "stats": {"requests": 7}}
+    assert meta["server_info"] == {"before": expected, "after": expected}
+
+
+def test_missing_info_endpoint_records_null_and_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "noinfo.jsonl"
+    argv = ["run", "--url", "http://x", "--model", "m", "--rate", "200", "--num-requests", "5",
+            "--warmup", "0", "--out", str(out), "--fetch-server-info", *SMALL]  # fmt: skip
+    assert main(argv, transport=httpx.MockTransport(echo_handler_with_404)) == 0
+    assert "could not fetch /info" in capsys.readouterr().err
+    meta, _, _ = read_results(out)
+    assert meta["server_info"] == {"before": None, "after": None}
+
+
+def echo_handler_with_404(request: httpx.Request) -> httpx.Response:
+    if request.method == "GET":
+        return httpx.Response(404)
+    return echo_handler()(request)
+
+
+def test_small_vocabulary_models_are_supported(tmp_path: Path) -> None:
+    out = tmp_path / "small.jsonl"
+    argv = ["run", "--url", "http://x", "--model", "m", "--rate", "200", "--num-requests", "5",
+            "--warmup", "2", "--vocab-size", "128", "--min-token-id", "3", "--out", str(out),
+            *SMALL]  # fmt: skip
+    assert main(argv, transport=httpx.MockTransport(echo_handler())) == 0

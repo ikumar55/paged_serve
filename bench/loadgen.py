@@ -52,11 +52,19 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--vocab-size", type=int, default=32000, help="prompt token ids stay below this"
     )
+    run.add_argument(
+        "--min-token-id", type=int, default=1000, help="prompt token ids start at this value"
+    )
     run.add_argument("--timeout", type=float, default=120.0, help="per-request deadline in seconds")
     run.add_argument("--no-ignore-eos", action="store_true", help="let the model stop at EOS")
     run.add_argument("--warmup", type=int, default=3, help="unmeasured sequential requests first")
     run.add_argument("--label", default="", help="name of the system under test, used in plots")
     run.add_argument("--server-env", type=Path, help="env_capture JSON from the server machine")
+    run.add_argument(
+        "--fetch-server-info",
+        action="store_true",
+        help="record GET /info from the server before and after the run (our own servers)",
+    )
     run.add_argument("--out", type=Path, required=True, help="result file to create (JSONL)")
 
     summary = sub.add_parser("summarize", help="print the summary of a result file")
@@ -114,6 +122,7 @@ def _workload_from_args(args: argparse.Namespace) -> WorkloadConfig:
         output=LengthDist(args.output_median, args.output_sigma, 1, args.output_max),
         seed=args.seed,
         vocab_size=args.vocab_size,
+        min_token_id=args.min_token_id,
     )
 
 
@@ -181,6 +190,7 @@ async def _execute(
                 args.model,
                 args.warmup,
                 vocab_size=workload.vocab_size,
+                min_token_id=workload.min_token_id,
                 timeout_s=args.timeout,
             )
         return await run_workload(
@@ -190,6 +200,20 @@ async def _execute(
             timeout_s=args.timeout,
             ignore_eos=not args.no_ignore_eos,
         )
+
+
+async def _fetch_info(
+    url: str, transport: httpx.AsyncBaseTransport | None
+) -> dict[str, Any] | None:
+    """The server's ``/info`` (configuration and cumulative stats), or None if unavailable."""
+    try:
+        async with httpx.AsyncClient(base_url=url, transport=transport, timeout=10) as client:
+            response = await client.get("/info")
+            response.raise_for_status()
+            data = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _command_run(
@@ -206,11 +230,20 @@ def _command_run(
         )
     workload = _workload_from_args(args)
     meta = _build_meta(args, workload, argv)
+    info_before = asyncio.run(_fetch_info(args.url, transport)) if args.fetch_server_info else None
+    if args.fetch_server_info and info_before is None:
+        print("warning: could not fetch /info from the server; recording null", file=sys.stderr)
     try:
         results = asyncio.run(_execute(args, workload, transport))
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if args.fetch_server_info:
+        # Server stats are cumulative since it started, so keep both ends to take the difference.
+        meta["server_info"] = {
+            "before": info_before,
+            "after": asyncio.run(_fetch_info(args.url, transport)),
+        }
     summary = summarize(results)
     write_results(args.out, meta, results, summary)
     print(format_summary(summary))
