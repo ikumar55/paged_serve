@@ -24,6 +24,8 @@ Requires Python 3.10 or newer.
 make setup   # virtualenv and pinned dev dependencies
 make check   # lint, type check and CPU tests
 make test-real   # optional: compare against real Llama-3.2-1B-Instruct weights in models/
+make test-gpu    # optional, needs a CUDA GPU; refuses to run on one that fails the self-test
+python -m bench.gpu_selftest   # does this GPU return identical results for identical inputs?
 ```
 
 The real-weights tests need the model files in `models/Llama-3.2-1B-Instruct/` (gitignored; download them yourself after accepting Meta's license) and skip themselves when they are absent.

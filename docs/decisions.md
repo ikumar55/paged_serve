@@ -284,6 +284,32 @@ estimates are recorded here as if they were results.
   35 ms, i.e. the batch window dominates at low load, and a mean batch size of 2.1. That checks the
   tooling, not performance.
 
+### D-016 Every GPU measurement is preceded by a determinism self-test
+
+- **Status:** decided; implemented in `bench/gpu_selftest.py` and enforced by `bench.greedy_eval`
+  and `make test-gpu`.
+- **Decision:** Before measuring on a GPU, repeat elementwise operations and a matrix multiply on
+  identical inputs and require bit-identical results, and check `silu` and a matrix multiply
+  against a float64 CPU result. The check fails closed (an explicit `--skip-selftest` exists and is
+  recorded), and the report is stored in every result file.
+- **Why:** The first GPU used returned different results for identical inputs and nothing in the
+  usual checks said so (see the correction under D-002). The only symptom was unexplained logit
+  differences between this engine and Hugging Face of up to 1.8, while greedy decoding agreed on
+  200 of 200 prompts, so token agreement alone would have passed it.
+- **Measured effect (a finding about one machine, not a benchmark):** on one NVIDIA RTX PRO 6000
+  Blackwell Workstation Edition (driver 580.178.04), with torch 2.15.0+cu132 and again with torch
+  2.14.1+cu130, repeating an operation on identical input gave different results: `silu` on
+  3000 of 3000 repeats (about 6 wrong elements each, always within the same 8 of 189 rows),
+  `sigmoid` on 300 of 3000, `exp` on 5 of 3000, while multiply, add, divide, `tanh`, `rsqrt`,
+  `sin`, `log` and a mean never differed. ECC counters were zero, a 24 GB memory pattern test
+  (3 passes) found no errors, and a single matrix multiply and the attention kernels passed in
+  isolation. `silu` was off from the float64 result by a relative 0.21 in one run. Bisecting a
+  whole-model forward pass with module hooks found the first differing output in the MLP of layer
+  0, in 4 of 189 token rows. The pattern (the exponential/reciprocal path, the same rows,
+  different values on every repeat, two software builds) points at a hardware fault, not at this
+  engine or PyTorch, but that is an inference: it has not yet been reproduced on a second GPU
+  or ruled out for that GPU with a different driver. Results from that machine are discarded.
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~

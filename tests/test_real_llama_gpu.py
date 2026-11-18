@@ -22,6 +22,7 @@ import pytest
 import torch
 from transformers import AutoModelForCausalLM
 
+from bench.gpu_selftest import failed_checks, run_selftest
 from tests.real_model_support import (
     LONG_PROMPT_TOKENS,
     MODEL_DIR,
@@ -41,6 +42,18 @@ pytestmark = [
 # The project target for fp32 logits (docs/decisions.md, D-010).
 FP32_LOGIT_TARGET = 1e-3
 DEVICE = "cuda"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def gpu_passes_selftest() -> None:
+    """Refuse to measure on a GPU that returns different results for identical inputs."""
+    report = run_selftest(DEVICE)
+    if not report["passed"]:
+        pytest.fail(
+            f"GPU self-test failed ({', '.join(failed_checks(report))}): this device returns "
+            "inconsistent results, so nothing measured on it can be trusted",
+            pytrace=False,
+        )
 
 
 @pytest.fixture(scope="module", autouse=True)

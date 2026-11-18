@@ -42,6 +42,7 @@ from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 
 from bench.env_capture import capture_environment, git_info, run_command
+from bench.gpu_selftest import failed_checks, run_selftest
 from engine.config import LlamaConfig
 from engine.generate import greedy_generate
 from engine.model import Llama
@@ -331,6 +332,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--prompts", type=int, default=200)
     parser.add_argument("--tokens", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--skip-selftest",
+        action="store_true",
+        help="measure even if the GPU self-test fails (the result file records the skip)",
+    )
     return parser.parse_args(argv)
 
 
@@ -347,6 +353,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     torch.set_float32_matmul_precision("highest")
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
+
+    # A GPU that returns different results for identical inputs invalidates everything below, so
+    # check before spending time on the run, and record the outcome in the result file.
+    selftest: dict[str, Any] | None = None
+    devices = {args.device, ref_device}
+    if any(torch.device(d).type == "cuda" for d in devices):
+        cuda_device = next(d for d in devices if torch.device(d).type == "cuda")
+        if args.skip_selftest:
+            selftest = {"skipped": True}
+        else:
+            selftest = run_selftest(cuda_device)
+            if not selftest["passed"]:
+                raise SystemExit(
+                    f"GPU self-test failed ({', '.join(failed_checks(selftest))}); this device "
+                    "returns inconsistent results, so nothing measured on it can be trusted. "
+                    "Use another GPU (or --skip-selftest to record that you chose not to check)."
+                )
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
     reference = AutoModelForCausalLM.from_pretrained(args.model_dir, dtype=ref_dtype)
@@ -394,6 +417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "dtype": args.ref_dtype or args.dtype,
             },
             "tf32_matmul_allowed": False,
+            "gpu_selftest": selftest,
             "prompt_set": {
                 "seed": args.seed,
                 "counts": counts_for(args.prompts),
