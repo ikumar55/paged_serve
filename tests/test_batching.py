@@ -31,7 +31,10 @@ async def drain(request: PendingRequest) -> tuple[list[Event], float, float]:
     events: list[Event] = []
     first = 0.0
     while True:
-        event = await request.events.get()
+        try:
+            event = await asyncio.wait_for(request.events.get(), timeout=10)
+        except asyncio.TimeoutError:
+            raise AssertionError(f"no event for 10 s; got so far: {events}") from None
         events.append(event)
         if event[0] == "token" and not first:
             first = time.monotonic()

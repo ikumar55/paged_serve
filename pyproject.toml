@@ -9,9 +9,11 @@ description = "A small LLM inference engine (paged KV cache, continuous batching
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "fastapi",
     "httpx",
     "numpy",
     "torch",
+    "uvicorn",
 ]
 
 [project.optional-dependencies]

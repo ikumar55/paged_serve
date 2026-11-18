@@ -125,3 +125,31 @@ class SseServer:
     def __exit__(self, *exc_info: object) -> None:
         self.loop.call_soon_threadsafe(self.loop.stop)
         self.thread.join(timeout=5)
+
+
+class UvicornServer:
+    """Runs an ASGI app on a real localhost socket in a background thread."""
+
+    def __init__(self, app: Any) -> None:
+        import uvicorn
+
+        self.server = uvicorn.Server(
+            uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
+        )
+        self.thread = threading.Thread(target=self.server.run, daemon=True)
+
+    def __enter__(self) -> str:
+        import time
+
+        self.thread.start()
+        deadline = time.monotonic() + 10
+        while not self.server.started:
+            if time.monotonic() > deadline:
+                raise RuntimeError("server did not start")
+            time.sleep(0.01)
+        port = self.server.servers[0].sockets[0].getsockname()[1]
+        return f"http://127.0.0.1:{port}"
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.server.should_exit = True
+        self.thread.join(timeout=10)
