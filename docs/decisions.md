@@ -21,7 +21,7 @@ estimates are recorded here as if they were results.
 
 ### D-001 Model: Llama-3.2-1B-Instruct, with TinyLlama as ungated fallback
 
-- **Status:** decided; license acceptance pending on the author's side.
+- **Status:** decided; license accepted and the weights verified (see D-002 and D-010).
 - **Decision:** Develop against Llama-3.2-1B-Instruct. Use TinyLlama-1.1B for bring-up if the
   Llama license is not yet accepted, and keep the model loader config-driven so a second
   architecture is cheap to add.
@@ -46,6 +46,18 @@ estimates are recorded here as if they were results.
   bound of 1e-4, tighter than the 1e-3 target in D-010. As a sanity check that the tests can
   fail, deliberately breaking the model gave: RoPE scaling dropped 6.15, RoPE theta off by 1%
   0.043, RMSNorm epsilon 1e-5 to 1e-3 0.036 (max absolute logit difference).
+
+  **Real model (Llama-3.2-1B-Instruct, fp32, CPU, local run, `make test-real`):** the max
+  absolute logit difference against the Hugging Face reference was 0.0 (bit-identical) over 50
+  prompts (10 sentences, 40 random token sequences of 4 to 32 tokens) and on one 2048-token
+  prompt; greedy generation matched on 8 of 8 prompts over 24 tokens. The target in D-010 is
+  1e-3. Exact equality reflects both implementations running the same operations in the same
+  order on CPU in fp32; it should not be expected on a GPU, in bf16 or with custom kernels, where
+  the 1e-3 bound is the contract. Sensitivity of these tests, measured by deliberately breaking
+  the model: dropping RoPE scaling changes logits by 0.086 on a 32-token prompt and 0.78 on a
+  2048-token prompt, and a 1% error in RoPE theta by 0.0054 and 0.028, all above 1e-3, which is
+  why a long prompt is included. This is a small sample; the planned 200-prompt, 64-token
+  evaluation still has to be run on the GPU machine.
 
 ### D-003 Attention path: gather first, CUDA graphs before custom kernels
 
@@ -130,7 +142,10 @@ estimates are recorded here as if they were results.
   differ by more than a small absolute tolerance, so a tight bf16 bound would fail for reasons
   unrelated to bugs. One early token mismatch also cascades through the rest of a sequence, so the
   divergence position is more informative than a single match rate.
-- **Measured effect:** n/a.
+- **Measured effect:** fp32 on the real model is covered under D-002. For bf16 (this engine in
+  bf16 against the Hugging Face fp32 reference, 50 prompts, CPU, local run): top-1 token
+  agreement 0.9614 across all positions and mean absolute logit difference 0.0400. These
+  describe how far bf16 drifts from fp32 and are reported, not bounded, as decided above.
 
 ### D-011 One extension, chosen after the Phase 2 gate
 
@@ -237,8 +252,8 @@ estimates are recorded here as if they were results.
 
 ## Open verification items
 
-- Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the downloaded `config.json`
-  once model access is granted. The preset was transcribed from the public model card.
+- ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~
+  Done: the preset equals the published config (checked by `test_preset_matches_the_published_config`).
 - Revisit the throughput and latency targets after the Week 1 baselines.
 
 ## Attributions
