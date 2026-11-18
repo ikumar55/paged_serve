@@ -19,7 +19,7 @@ typecheck:
 	$(PY) -m mypy
 
 test:
-	$(PY) -m pytest -m "not gpu"
+	$(PY) -m pytest -m "not gpu and not real_model"
 
 # Needs the real weights in models/ (see tests/test_real_llama.py)
 test-real:
