@@ -168,8 +168,7 @@ class LlamaConfig:
     def llama_3_2_1b(cls) -> LlamaConfig:
         """Llama-3.2-1B hyperparameters as published on the model card.
 
-        TODO: confirm against the downloaded ``config.json`` once license access is granted
-        (tracked in docs/decisions.md).
+        Verified equal to the published ``config.json`` by ``tests/test_real_llama.py``.
         """
         return cls(
             vocab_size=128256,

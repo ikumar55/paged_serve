@@ -1,6 +1,6 @@
 PY ?= .venv/bin/python
 
-.PHONY: setup lint format typecheck test check env-capture
+.PHONY: setup lint format typecheck test test-real check env-capture
 
 setup:
 	python3.12 -m venv .venv
@@ -20,6 +20,10 @@ typecheck:
 
 test:
 	$(PY) -m pytest -m "not gpu"
+
+# Needs the real weights in models/ (see tests/test_real_llama.py)
+test-real:
+	$(PY) -m pytest -m real_model -s
 
 check: lint typecheck test
 

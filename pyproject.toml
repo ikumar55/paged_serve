@@ -20,6 +20,7 @@ dependencies = [
 # Reference implementations used only by tests and benchmarks (never by the engine itself).
 dev = [
     "matplotlib",
+    "safetensors",
     "transformers",
     "pytest",
     "ruff",
@@ -48,4 +49,5 @@ testpaths = ["tests"]
 addopts = "-ra"
 markers = [
     "gpu: needs a CUDA GPU; run by hand on the GPU box (deselected in CI)",
+    "real_model: needs the real Llama weights in models/ (skipped when absent)",
 ]
