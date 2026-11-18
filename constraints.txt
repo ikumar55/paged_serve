@@ -4,6 +4,8 @@
 torch==2.15.0
 transformers==5.23.0
 numpy==2.5.5
+httpx==0.28.1
+matplotlib==3.11.2
 pytest==9.2.0
 ruff==0.17.5
 mypy==2.4.1

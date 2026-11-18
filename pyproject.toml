@@ -9,6 +9,7 @@ description = "A small LLM inference engine (paged KV cache, continuous batching
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "httpx",
     "numpy",
     "torch",
 ]
@@ -16,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 # Reference implementations used only by tests and benchmarks (never by the engine itself).
 dev = [
+    "matplotlib",
     "transformers",
     "pytest",
     "ruff",
