@@ -59,8 +59,23 @@ estimates are recorded here as if they were results.
   why a long prompt is included. This is a small sample; the planned 200-prompt, 64-token
   evaluation is run by `bench/greedy_eval.py` (results below once recorded).
 
-  **Real model on GPU (Llama-3.2-1B-Instruct, one NVIDIA RTX PRO 6000 Blackwell Workstation
-  Edition with 96 GB, driver 580.178.04, torch 2.15.0+cu132, TF32 disabled, `make test-gpu`):**
+  **Correction: the GPU paragraph that follows is superseded and must not be cited.** The GPU
+  it was measured on was later found to return different results for identical inputs. An
+  elementwise `silu(x) * y` on unchanged inputs gave a different result in 1020 of 3000
+  repeats, always in the same few rows; a whole-model forward pass differed by up to 0.45 in
+  logit space between two identical calls; a float64 CPU reference put Hugging Face's own GPU
+  output up to 0.9 away from the truth while its CPU output stayed within 3e-5. ECC counters
+  were clean, so ECC did not catch it, and a single linear layer and the attention kernels
+  passed in isolation. Whether the cause is that GPU or the CUDA 13.2 runtime on a driver that
+  advertises CUDA 13.0 is not yet established. The figures below, the "noise floor" reading and
+  the "bit-identical to Hugging Face" observation all assumed a GPU that computes the same thing
+  twice, so none of them is evidence. They stay only so the record shows what was measured. The
+  GPU checks will be re-run on a GPU that first passes a determinism self-test, and every GPU
+  result file will record that self-test.
+
+  **Superseded: real model on GPU (Llama-3.2-1B-Instruct, one NVIDIA RTX PRO 6000 Blackwell
+  Workstation Edition with 96 GB, driver 580.178.04, torch 2.15.0+cu132, TF32 disabled,
+  `make test-gpu`):**
   this is a workstation GPU, not a datacenter one, so nothing here transfers to an A100 or H100.
   In fp32 the max absolute logit difference against the Hugging Face fp32 CPU reference was
   2.0e-4 over the same 50 prompts and 9.2e-6 on the 2048-token prompt, inside the 1e-3 target.
@@ -159,8 +174,9 @@ estimates are recorded here as if they were results.
   agreement 0.9614 across all positions and mean absolute logit difference 0.0400. These
   describe how far bf16 drifts from fp32 and are reported, not bounded, as decided above.
   The same test on a Linux x86 CPU gave 0.9710 and 0.0384, so the figure moves by about 0.01
-  with the hardware's math libraries alone. On the GPU named under D-002 (same 50 prompts, one
-  run): this engine in bf16 had top-1 agreement 0.9626 and mean absolute difference 0.0381, and
+  with the hardware's math libraries alone. Superseded, see the correction under D-002 (the GPU
+  below returned inconsistent results): on the GPU named there (same 50 prompts, one run): this
+  engine in bf16 had top-1 agreement 0.9626 and mean absolute difference 0.0381, and
   Hugging Face in bf16 had 0.9602 and 0.0367. The gap between them is about two tokens' worth
   and smaller than the hardware-to-hardware movement above, so it is not evidence that either
   is better.
