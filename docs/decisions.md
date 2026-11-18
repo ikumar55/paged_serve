@@ -57,7 +57,19 @@ estimates are recorded here as if they were results.
   the model: dropping RoPE scaling changes logits by 0.086 on a 32-token prompt and 0.78 on a
   2048-token prompt, and a 1% error in RoPE theta by 0.0054 and 0.028, all above 1e-3, which is
   why a long prompt is included. This is a small sample; the planned 200-prompt, 64-token
-  evaluation still has to be run on the GPU machine.
+  evaluation is run by `bench/greedy_eval.py` (results below once recorded).
+
+  **Real model on GPU (Llama-3.2-1B-Instruct, one NVIDIA RTX PRO 6000 Blackwell Workstation
+  Edition with 96 GB, driver 580.178.04, torch 2.15.0+cu132, TF32 disabled, `make test-gpu`):**
+  this is a workstation GPU, not a datacenter one, so nothing here transfers to an A100 or H100.
+  In fp32 the max absolute logit difference against the Hugging Face fp32 CPU reference was
+  2.0e-4 over the same 50 prompts and 9.2e-6 on the 2048-token prompt, inside the 1e-3 target.
+  Hugging Face's own GPU output differs from its own CPU output by 2.0e-4 and 4.4e-5 on those
+  prompts, so these differences are the GPU's numerical noise floor, not engine error. Against
+  Hugging Face on the same GPU the engine's logits were bit-identical (max absolute difference
+  0.0 over the 50 prompts). Both call the same kernels at these shapes, so that is an observation
+  about this setup, not a guarantee, and the 1e-3 bound stays the contract. One run each; the
+  prompts are the ones used for the CPU numbers above.
 
 ### D-003 Attention path: gather first, CUDA graphs before custom kernels
 
@@ -146,6 +158,12 @@ estimates are recorded here as if they were results.
   bf16 against the Hugging Face fp32 reference, 50 prompts, CPU, local run): top-1 token
   agreement 0.9614 across all positions and mean absolute logit difference 0.0400. These
   describe how far bf16 drifts from fp32 and are reported, not bounded, as decided above.
+  The same test on a Linux x86 CPU gave 0.9710 and 0.0384, so the figure moves by about 0.01
+  with the hardware's math libraries alone. On the GPU named under D-002 (same 50 prompts, one
+  run): this engine in bf16 had top-1 agreement 0.9626 and mean absolute difference 0.0381, and
+  Hugging Face in bf16 had 0.9602 and 0.0367. The gap between them is about two tokens' worth
+  and smaller than the hardware-to-hardware movement above, so it is not evidence that either
+  is better.
 
 ### D-011 One extension, chosen after the Phase 2 gate
 

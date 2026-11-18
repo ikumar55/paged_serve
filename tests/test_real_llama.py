@@ -11,25 +11,29 @@ from __future__ import annotations
 
 import gc
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
 import torch
-from safetensors.torch import load_file
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM
 
 from engine.config import LlamaConfig
 from engine.generate import greedy_generate
 from engine.model import Llama
-from engine.weights import load_hf_state_dict
-
-MODEL_DIR = Path(__file__).resolve().parents[1] / "models" / "Llama-3.2-1B-Instruct"
+from tests.real_model_support import (
+    LONG_PROMPT_TOKENS,
+    MODEL_DIR,
+    WEIGHTS_PRESENT,
+    build_prompts,
+    first_diff,
+    load_engine,
+    long_prompt_ids,
+)
 
 pytestmark = [
     pytest.mark.real_model,
     pytest.mark.skipif(
-        not (MODEL_DIR / "model.safetensors").exists(),
+        not WEIGHTS_PRESENT,
         reason="real weights not downloaded (see tests/test_real_llama.py)",
     ),
 ]
@@ -37,33 +41,11 @@ pytestmark = [
 # The project target for fp32 logits (docs/decisions.md, D-010).
 FP32_LOGIT_TARGET = 1e-3
 GENERATED_TOKENS = 24
-LONG_PROMPT_TOKENS = 2048  # long enough for Llama-3 RoPE scaling to matter
-
-TEXT_PROMPTS = [
-    "The capital of France is",
-    "def fibonacci(n):\n    if n < 2:\n        return n\n    return",
-    "Photosynthesis is the process by which plants",
-    "Once upon a time, in a small village by the sea,",
-    "The three laws of thermodynamics state that",
-    "To make a good cup of coffee, you should first",
-    "In 1969, the Apollo 11 mission",
-    "SELECT name, COUNT(*) FROM orders GROUP BY",
-    "A binary search tree is a data structure where",
-    "Dear team, I am writing to let you know that",
-]
 
 
 @pytest.fixture(scope="module")
 def prompts() -> list[list[int]]:
-    """Fifty prompts: ten real sentences plus forty random token sequences of varying length."""
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
-    texts = [tokenizer(text)["input_ids"] for text in TEXT_PROMPTS]
-    generator = torch.Generator().manual_seed(0)
-    lengths = torch.randint(4, 33, (40,), generator=generator).tolist()
-    random_ids = [torch.randint(1000, 100000, (n,), generator=generator).tolist() for n in lengths]
-    result = texts + random_ids
-    assert len(result) == 50 and max(len(p) for p in result) <= 32
-    return result
+    return build_prompts()
 
 
 @pytest.fixture(scope="module")
@@ -85,9 +67,7 @@ def reference(prompts: list[list[int]]) -> dict[str, Any]:
                 eos_token_id=None,
             )
             generated.append(out[0, len(prompt) :].tolist())
-        long_ids = torch.randint(
-            1000, 100000, (1, LONG_PROMPT_TOKENS), generator=torch.Generator().manual_seed(1)
-        )
+        long_ids = long_prompt_ids()
         long_logits = model(long_ids, logits_to_keep=1).logits[0, -1].clone()
     del model
     gc.collect()
@@ -97,13 +77,6 @@ def reference(prompts: list[list[int]]) -> dict[str, Any]:
         "long_ids": long_ids,
         "long_logits": long_logits,
     }
-
-
-def load_engine(dtype: torch.dtype) -> Llama:
-    raw = json.loads((MODEL_DIR / "config.json").read_text())
-    model = Llama(LlamaConfig.from_hf_dict(raw), dtype=dtype)
-    load_hf_state_dict(model, load_file(MODEL_DIR / "model.safetensors"))
-    return model.eval()
 
 
 @pytest.fixture(scope="module")
@@ -150,14 +123,8 @@ def test_greedy_generation_matches_reference(
     for index, expected in enumerate(reference["generated"]):
         actual = greedy_generate(engine_fp32, prompts[index], GENERATED_TOKENS)
         assert actual == expected, (
-            f"prompt {index} diverges at token {_first_diff(actual, expected)}"
+            f"prompt {index} diverges at token {first_diff(actual, expected)}"
         )
-
-
-def _first_diff(a: list[int], b: list[int]) -> int:
-    return next(
-        (i for i, (x, y) in enumerate(zip(a, b, strict=False)) if x != y), min(len(a), len(b))
-    )
 
 
 def test_bf16_agreement_with_fp32_reference(
