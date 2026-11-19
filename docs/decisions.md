@@ -299,7 +299,9 @@ estimates are recorded here as if they were results.
 
 ### D-015 Hugging Face baseline: static batching behind the same API
 
-- **Status:** decided; real-model numbers pending (needs the model weights and the GPU).
+- **Status:** decided; first real-model sweep recorded below (one run per configuration, batch
+  sizes up to 16). Larger batch sizes and repeated runs are still to do, so these are not yet the
+  final baseline numbers.
 - **Decision:** Baseline (1) is `model.generate` behind a small FastAPI server
   (`bench.baselines.hf_server`) that speaks the same streaming `/v1/completions` as everything
   else. Requests queue FIFO; a worker takes up to `max_batch_size` of them (waiting at most a
@@ -322,10 +324,37 @@ estimates are recorded here as if they were results.
   EOS still stopped early and fell short of their forced output length. Fixed by passing an id
   outside the vocabulary, which can never be generated. A test guards this, because the load
   generator's forced output lengths depend on it.
-- **Measured effect:** not yet measured on a real model. A smoke run against a tiny random-weight
-  model on CPU (40 requests at 40 req/s, 30 ms batch window, 4 slots) gave a median TTFT of about
-  35 ms, i.e. the batch window dominates at low load, and a mean batch size of 2.1. That checks the
-  tooling, not performance.
+- **Measured effect:** a sweep of 60 runs, `results/hf-static/` (table and per-run files in
+  `REPORT.md`, plot in `ttft-p50.png`). Setup: Llama-3.2-1B-Instruct in bf16 on one RTX A6000
+  (a workstation GPU, not a datacenter one), server and load generator on the same machine over
+  localhost, commit 99b2cf1, GPU self-test passed (D-016). Open-loop Poisson arrivals, seed 0,
+  lognormal prompt lengths (median 256, at most 2048) and output lengths (median 128, at most
+  512, EOS ignored), 60 s of arrivals per run, a 120 s per-request deadline, a fresh server for
+  every run. Max batch size 1, 4, 8 and 16; batch window 0, 20 and 100 ms; 0.5, 1, 2, 4 and 8
+  requests per second. All 60 runs completed, none was contended by another GPU user and the load
+  generator never fell behind. **One run per configuration**, so each run has 30 to 480 requests
+  (30 at the lowest rate, so its p99 rests on 30 samples) and run-to-run variation is unmeasured.
+  - **A window of 0 ms turns off batching.** The mean batch size was exactly 1.0 at every max
+    batch size, so throughput stayed at about 0.7 req/s (105 tokens/s), the same as max batch size
+    1. A baseline configured that way would look about 5 times slower than a tuned one.
+  - **With a window of 20 ms or more, throughput grows with batch size.** At the heaviest load
+    where every request still completed: 0.73 req/s (110 tokens/s) at batch 1, 1.60 (236) at
+    batch 4, 2.63 (387) at batch 8 and 3.76 (566) at batch 16. The largest load each setting kept
+    up with (throughput at least 90% of the arrival rate) was 1, 2 and 4 req/s for batch 4, 8 and
+    16. The best setting is at the edge of the grid, so batch sizes above 16 must be tried before
+    this counts as a tuned baseline.
+  - **Slots are wasted.** The fraction of decode slots spent on sequences that had already
+    finished was 36% at batch 4, 44% at batch 8 and 53% at batch 16 at those loads, because every
+    sequence waits for the longest in its batch. This is the cost continuous batching removes.
+  - **Latency while keeping up.** Batch 16 with a 20 ms window had TTFT p50 / p99 of 0.32 / 2.3 s
+    at 0.5 req/s, 0.72 / 3.3 s at 1, 1.5 / 4.0 s at 2 and 2.4 / 7.8 s at 4 req/s. Inter-token
+    latency was 9 to 11 ms in every run. At 8 req/s every configuration was overloaded (best p99
+    TTFT 65 s; at batch 1, 80% of requests hit the deadline).
+  - **Windows of 20 and 100 ms were indistinguishable** at this sampling (for example capacity of
+    3.76 and 3.77 req/s at batch 16), but with a single run each that is a statement about this
+    sample, not a finding.
+  The "sustained" label uses a 90% cutoff that is a convention: `b16-w20-r4` (90.3%) and
+  `b16-w100-r4` (88%) are not meaningfully different.
 
 ### D-016 Every GPU measurement is preceded by a determinism self-test
 

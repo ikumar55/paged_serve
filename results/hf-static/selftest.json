@@ -1,0 +1,73 @@
+{
+  "checks": {
+    "gemm_vs_float64": {
+      "passed": true,
+      "relative_error": 7.625982077354037e-07
+    },
+    "repeat_exp": {
+      "differing_elements": 0,
+      "differing_repeats": 0,
+      "distinct_rows_affected": 0,
+      "passed": true,
+      "repeats": 300
+    },
+    "repeat_gemm": {
+      "differing_elements": 0,
+      "differing_repeats": 0,
+      "distinct_rows_affected": 0,
+      "passed": true,
+      "repeats": 300
+    },
+    "repeat_mul": {
+      "differing_elements": 0,
+      "differing_repeats": 0,
+      "distinct_rows_affected": 0,
+      "passed": true,
+      "repeats": 300
+    },
+    "repeat_rsqrt": {
+      "differing_elements": 0,
+      "differing_repeats": 0,
+      "distinct_rows_affected": 0,
+      "passed": true,
+      "repeats": 300
+    },
+    "repeat_sigmoid": {
+      "differing_elements": 0,
+      "differing_repeats": 0,
+      "distinct_rows_affected": 0,
+      "passed": true,
+      "repeats": 300
+    },
+    "repeat_silu": {
+      "differing_elements": 0,
+      "differing_repeats": 0,
+      "distinct_rows_affected": 0,
+      "passed": true,
+      "repeats": 300
+    },
+    "repeat_silu_mul": {
+      "differing_elements": 0,
+      "differing_repeats": 0,
+      "distinct_rows_affected": 0,
+      "passed": true,
+      "repeats": 300
+    },
+    "repeat_tanh": {
+      "differing_elements": 0,
+      "differing_repeats": 0,
+      "distinct_rows_affected": 0,
+      "passed": true,
+      "repeats": 300
+    },
+    "silu_vs_float64": {
+      "passed": true,
+      "relative_error": 9.967567739255785e-08
+    }
+  },
+  "cuda_runtime": "13.2",
+  "device": "NVIDIA RTX A6000",
+  "passed": true,
+  "repeats": 300,
+  "torch": "2.15.0+cu132"
+}
