@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import socket
 import subprocess
 import sys
 import time
@@ -136,6 +137,12 @@ def run_sweep(
     return entries
 
 
+def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1)
+        return sock.connect_ex((host, port)) == 0
+
+
 class SubprocessBackend:
     """Starts ``bench.baselines.hf_server`` and ``bench.loadgen`` as separate processes."""
 
@@ -158,6 +165,10 @@ class SubprocessBackend:
         return readings
 
     def start_server(self, config: RunConfig) -> subprocess.Popen[bytes]:
+        # On a shared machine another service may own the port; waiting for "ready" would then
+        # find that service and the load generator would send our load to it.
+        if port_in_use(self.args.port):
+            raise RuntimeError(f"port {self.args.port} is already in use; pick another with --port")
         command = [
             sys.executable,
             "-m",
@@ -240,7 +251,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--windows-ms", default="0,20,100")
     parser.add_argument("--rates", default="1,2,4,8")
     parser.add_argument("--duration", type=float, default=60.0)
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=18437, help="must be free; checked per run")
     parser.add_argument(
         "--vocab-size",
         type=int,

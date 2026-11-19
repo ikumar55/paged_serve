@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from bench.sweep import RunConfig, execute_run, expand_grid, parse_numbers, run_sweep
+from bench.sweep import RunConfig, execute_run, expand_grid, parse_numbers, port_in_use, run_sweep
 
 
 class FakeBackend:
@@ -46,6 +47,15 @@ class FakeBackend:
 
     def stop_server(self, handle: Any) -> None:
         self.events.append(f"stop {handle}")
+
+
+def test_port_in_use_detects_a_listening_socket() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        port = server.getsockname()[1]
+        assert port_in_use(port)
+    assert not port_in_use(port)  # closed again
 
 
 def test_parse_numbers() -> None:
