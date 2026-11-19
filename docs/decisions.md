@@ -299,9 +299,9 @@ estimates are recorded here as if they were results.
 
 ### D-015 Hugging Face baseline: static batching behind the same API
 
-- **Status:** decided; first real-model sweep recorded below (one run per configuration, batch
-  sizes up to 16). Larger batch sizes and repeated runs are still to do, so these are not yet the
-  final baseline numbers.
+- **Status:** decided; real-model sweeps recorded below (batch sizes up to 64, one run per
+  configuration except where noted). Repeated runs to measure run-to-run variation are the last
+  step before these count as the final baseline numbers.
 - **Decision:** Baseline (1) is `model.generate` behind a small FastAPI server
   (`bench.baselines.hf_server`) that speaks the same streaming `/v1/completions` as everything
   else. Requests queue FIFO; a worker takes up to `max_batch_size` of them (waiting at most a
@@ -355,6 +355,17 @@ estimates are recorded here as if they were results.
     sample, not a finding.
   The "sustained" label uses a 90% cutoff that is a convention: `b16-w20-r4` (90.3%) and
   `b16-w100-r4` (88%) are not meaningfully different.
+
+  **Extension to batch sizes 32 and 64** (`results/hf-static-ext/`, 12 runs, windows of 20 and
+  100 ms, 2, 4 and 8 req/s; same setup and method, commit 9e22516, self-test passed, none
+  contended). The grid's best setting was at its edge, so this checks whether larger is better:
+  it is not. Throughput peaks at batch 32. At 8 req/s offered, with all 480 requests completing,
+  it was 4.95 req/s (745 tokens/s) at batch 32, 4.66 (702) at batch 64 and 3.76 (566) at batch 16.
+  Batch 64 had slower decode steps (inter-token p50 24 ms against 14 ms at batch 32) and a higher
+  wasted-slot fraction (62% against 57%). Below saturation, batches 16, 32 and 64 were close: at
+  4 req/s the TTFT p99 was 7.8, 7.2 and 6.1 s with a 20 ms window, a spread one run each cannot
+  resolve. So the best static-batching setting found is a max batch size of about 32 with a 20 ms
+  window, which is the configuration to compare against.
 
 ### D-016 Every GPU measurement is preceded by a determinism self-test
 
