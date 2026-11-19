@@ -121,19 +121,27 @@ def load_rows(directory: Path) -> list[Row]:
 
 def best_and_worst_per_rate(
     rows: Sequence[Row],
-) -> dict[float, tuple[Row, Row]]:
-    """Among valid runs at each rate: lowest and highest p99 time to first token."""
+) -> dict[float, tuple[Row, Row, bool]]:
+    """At each rate: the lowest and highest p99 time to first token, and whether any run kept up.
+
+    Runs that kept up with the offered load (sustained) are compared when there are any. At a rate
+    where every configuration is overloaded, the queue grows for the whole run and "best" only
+    means least bad, so the valid runs are compared instead and the flag is False.
+    """
     by_rate: dict[float, list[Row]] = defaultdict(list)
     for row in rows:
         if row.valid and row.ttft_p99_s is not None:
             by_rate[row.rate].append(row)
-    return {
-        rate: (
-            min(group, key=lambda r: r.ttft_p99_s or 0),
-            max(group, key=lambda r: r.ttft_p99_s or 0),
+    result: dict[float, tuple[Row, Row, bool]] = {}
+    for rate, group in sorted(by_rate.items()):
+        sustained = [r for r in group if r.sustained]
+        pool = sustained or group
+        result[rate] = (
+            min(pool, key=lambda r: r.ttft_p99_s or 0),
+            max(pool, key=lambda r: r.ttft_p99_s or 0),
+            bool(sustained),
         )
-        for rate, group in sorted(by_rate.items())
-    }
+    return result
 
 
 def _ms(value: float | None) -> str:
@@ -183,16 +191,23 @@ def render_report(rows: Sequence[Row], heading: str = "Static batching sweep") -
             + ", ".join(f"{r.name} ({r.invalid_reason})" for r in invalid)
         )
     lines += ["", "## Best and worst configuration at each arrival rate", ""]
-    lines.append("Ranked by p99 time to first token among valid runs.")
+    lines.append(
+        "Ranked by p99 time to first token among the runs that kept up with the offered load. "
+        "Where none did, every configuration is overloaded (its queue grows for the whole run), "
+        "so the ranking is among valid runs and means only 'least bad'. The 90% cutoff for "
+        "keeping up is a convention, so runs just either side of it are not meaningfully "
+        "different."
+    )
     lines += [
         "",
-        "| rate req/s | best (batch, window ms) | TTFT p99 ms | worst (batch, window ms) "
-        "| TTFT p99 ms |",
-        "| ---: | --- | ---: | --- | ---: |",
+        "| rate req/s | ranked among | best (batch, window ms) | TTFT p99 ms "
+        "| worst (batch, window ms) | TTFT p99 ms |",
+        "| ---: | --- | --- | ---: | --- | ---: |",
     ]
-    for rate, (best, worst) in best_and_worst_per_rate(rows).items():
+    for rate, (best, worst, kept_up) in best_and_worst_per_rate(rows).items():
+        pool = "sustained runs" if kept_up else "none sustained (least bad)"
         lines.append(
-            f"| {rate:g} | {best.batch_size}, {best.window_ms:g} | {_ms(best.ttft_p99_s)} "
+            f"| {rate:g} | {pool} | {best.batch_size}, {best.window_ms:g} | {_ms(best.ttft_p99_s)} "
             f"| {worst.batch_size}, {worst.window_ms:g} | {_ms(worst.ttft_p99_s)} |"
         )
     lines += ["", "## All runs", "", TABLE_HEADER, *map(format_row, rows), ""]

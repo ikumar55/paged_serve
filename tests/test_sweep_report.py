@@ -66,10 +66,30 @@ def test_best_and_worst_use_only_valid_runs() -> None:
         make_row(batch=4, rate=8, ttft_p99=2.0),
     ]
     result = best_and_worst_per_rate(rows)
-    best, worst = result[2.0]
+    best, worst, kept_up = result[2.0]
     assert (best.batch_size, worst.batch_size) == (4, 1)  # the contended 9.0 s run is ignored
-    only_best, only_worst = result[8.0]
+    assert kept_up
+    only_best, only_worst, _ = result[8.0]
     assert only_best is only_worst  # a single valid run is both
+
+
+def test_sustained_runs_are_preferred_and_overload_is_called_out() -> None:
+    rows = [
+        # At rate 4: one run keeps up (slower TTFT), two are overloaded with better p99 TTFT.
+        make_row(batch=16, rate=4, ttft_p99=6.0, throughput_rps=3.8),
+        make_row(batch=4, rate=4, ttft_p99=1.0, throughput_rps=1.5),
+        make_row(batch=8, rate=4, ttft_p99=2.0, throughput_rps=2.5),
+        # At rate 8 nothing keeps up.
+        make_row(batch=16, rate=8, ttft_p99=60.0, throughput_rps=3.8),
+        make_row(batch=4, rate=8, ttft_p99=90.0, throughput_rps=1.5),
+    ]
+    result = best_and_worst_per_rate(rows)
+    best, worst, kept_up = result[4.0]
+    assert kept_up and best is worst and best.batch_size == 16  # overloaded runs are not ranked
+    best, worst, kept_up = result[8.0]
+    assert not kept_up and (best.batch_size, worst.batch_size) == (16, 4)
+    report = render_report(rows)
+    assert "none sustained (least bad)" in report and "| 4 | sustained runs |" in report
 
 
 def write_sweep(directory: Path) -> None:
