@@ -356,16 +356,33 @@ estimates are recorded here as if they were results.
   The "sustained" label uses a 90% cutoff that is a convention: `b16-w20-r4` (90.3%) and
   `b16-w100-r4` (88%) are not meaningfully different.
 
-  **Extension to batch sizes 32 and 64** (`results/hf-static-ext/`, 12 runs, windows of 20 and
-  100 ms, 2, 4 and 8 req/s; same setup and method, commit 9e22516, self-test passed, none
-  contended). The grid's best setting was at its edge, so this checks whether larger is better:
-  it is not. Throughput peaks at batch 32. At 8 req/s offered, with all 480 requests completing,
-  it was 4.95 req/s (745 tokens/s) at batch 32, 4.66 (702) at batch 64 and 3.76 (566) at batch 16.
-  Batch 64 had slower decode steps (inter-token p50 24 ms against 14 ms at batch 32) and a higher
-  wasted-slot fraction (62% against 57%). Below saturation, batches 16, 32 and 64 were close: at
-  4 req/s the TTFT p99 was 7.8, 7.2 and 6.1 s with a 20 ms window, a spread one run each cannot
-  resolve. So the best static-batching setting found is a max batch size of about 32 with a 20 ms
-  window, which is the configuration to compare against.
+  **Extension to batch sizes 32 and 64, and repeated runs.** The first sweep's best setting was
+  at the edge of its grid, so batch sizes 32 and 64 were added (`results/hf-static-ext/`, 12 runs,
+  windows of 20 and 100 ms, 2, 4 and 8 req/s). Batch 16, 32 and 64 at a 20 ms window were then
+  repeated at 4 and 8 req/s with three more workload seeds (`results/hf-static-seed{1,2,3}/` and
+  `results/hf-static-b64-seed{1,2,3}/`), giving four runs per cell; `results/variation.md` has
+  the table. Same setup and method throughout, none of the runs was contended. The self-test
+  report in the `hf-static-seed*` folders is the one from the extension run about 25 minutes
+  earlier; the batch-64 repeats ran their own.
+
+  **The repeats show a run-to-run spread of 10 to 19% of the mean throughput**, so a single-run
+  difference of that size means nothing. They also correct a conclusion I drew from the
+  single-run extension, that batch 64 is worse than batch 32 (4.66 against 4.95 req/s at 8 req/s):
+  with four runs each it is not (5.31 against 5.26), and that first reading was the low end of
+  batch 64's spread. At 8 req/s offered (mean, with minimum to maximum of the four runs):
+  batch 16 reached 4.02 req/s (3.76 to 4.16, 579 tokens/s), batch 32 5.26 (4.95 to 5.67, 757) and
+  batch 64 5.31 (4.66 to 5.65, 764). Going from batch 16 to 32 therefore raises saturated
+  throughput by about 31% with non-overlapping ranges, and going from 32 to 64 adds nothing
+  measurable. TTFT p99 at that load was 57, 30 and 30 s (the ranges for 32 and 64 overlap), and
+  TTFT p50 was 14 s at batch 32 and 10 s at batch 64 (ranges 12.4 to 16.6 s and 9.2 to 12.9 s).
+  At 4 req/s batches 16, 32 and 64 are tied on throughput (3.65, 3.78 and 3.73 req/s).
+
+  **The baseline to compare against** is therefore a max batch size of 32 (64 is equivalent) with
+  a 20 ms window (100 ms was indistinguishable): about 5.3 req/s (760 tokens/s) at saturation on
+  this GPU and workload, with 57% of decode slots wasted in the single run that measured it. The
+  continuous-batching engine should be compared with that figure, not with the 3.76 req/s of the
+  first single-run grid. The single-run inter-token latency at batch 64 was 24 ms against 14 ms at
+  batch 32; this was not repeated.
 
 ### D-016 Every GPU measurement is preceded by a determinism self-test
 
