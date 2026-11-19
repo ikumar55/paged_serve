@@ -108,7 +108,12 @@ estimates are recorded here as if they were results.
   fp32: 200 of 200 outputs identical (95% interval 98.1% to 100%), the top-1 prediction agrees at
   all 12,800 teacher-forced steps, and the max logit difference over all of them is 0.0. bf16:
   200 of 200 identical, 12,800 of 12,800 steps agree, max logit difference 0.0. That is one
-  model, one GPU and one prompt set, so it is a measurement and not a guarantee. The GPU may be
+  model, one GPU and one prompt set, so it is a measurement and not a guarantee. Against the
+  golden reference (Hugging Face fp32 on CPU, same prompts, engine in fp32 on the GPU): also 200
+  of 200 identical and 12,800 of 12,800 steps in agreement; the max logit difference over all
+  steps was 2.4e-4, consistent with the ~4e-4 fp32 error scale above, and only 2 of the 12,800
+  steps had a top-2 gap small enough (at most twice that difference) for a flip to be possible,
+  neither of which flipped. The GPU may be
   shared with other users (utilization of 12 to 23% appeared with no visible process of ours),
   which cannot affect these correctness results but would affect any latency measurement.
 
