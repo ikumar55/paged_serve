@@ -223,9 +223,11 @@ def plot_ttft(rows: Sequence[Row], path: Path) -> None:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import NullFormatter, ScalarFormatter
 
     batches = sorted({r.batch_size for r in rows})
     windows = sorted({r.window_ms for r in rows})
+    rates = sorted({r.rate for r in rows})
     fig, axes = plt.subplots(1, len(batches), figsize=(4 * len(batches), 3.6), sharey=True)
     axes_list: list[Any] = [axes] if len(batches) == 1 else list(axes)
     for axis, batch in zip(axes_list, batches, strict=True):
@@ -241,14 +243,23 @@ def plot_ttft(rows: Sequence[Row], path: Path) -> None:
         axis.set_xlabel("arrival rate (req/s)")
         axis.set_xscale("log")
         axis.set_yscale("log")
+        # Label the rates that were actually run; matplotlib's default log ticks overlap here.
+        axis.set_xticks(rates)
+        axis.xaxis.set_major_formatter(ScalarFormatter())
+        axis.xaxis.set_minor_formatter(NullFormatter())
         axis.grid(True, alpha=0.3)
-    axes_list[0].set_ylabel("TTFT p50 (ms), valid runs only")
+    axes_list[0].set_ylabel("TTFT p50 (ms)")
+    fig.suptitle(
+        "Lines stop at the rate where a run stopped being valid (timeouts, or the load "
+        "generator fell behind); the cliff is in the table",
+        fontsize=9,
+    )
     # The legend goes on the last panel that has any lines (a panel with no valid runs has none).
     for axis in reversed(axes_list):
         if axis.get_legend_handles_labels()[0]:
             axis.legend(fontsize=8)
             break
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150)
     plt.close(fig)
