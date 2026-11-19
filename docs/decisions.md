@@ -413,6 +413,53 @@ estimates are recorded here as if they were results.
   300 differing repeats for each operation and a `silu` error against float64 of 1.0e-7, which
   makes a software cause much less likely.
 
+### D-017 One benchmark machine for all three systems: an RTX 5060 Ti (16 GB)
+
+- **Status:** decided; the stack is validated on it (below). No benchmark has been run on it yet.
+- **Decision:** The Hugging Face baseline, this engine and vLLM are all measured on one machine,
+  one NVIDIA GeForce RTX 5060 Ti (16 GB, Blackwell consumer, driver 580.126.20, 32 CPU cores,
+  503 GB RAM, Ubuntu 24.04). The tuned Hugging Face baseline of D-015, measured on an RTX A6000,
+  is re-run there; the A6000 numbers stay as a record but are not compared with anything measured
+  on this GPU.
+- **Why this machine:** five NVIDIA machines were surveyed (GPU memory and utilization sampled six
+  times, other users' processes, free disk, cores, network, then the D-016 self-test, 3 runs each).
+  Only this one met every hard criterion: it passed the self-test (0 of 300 differing repeats for
+  every operation), its GPU was empty and idle, it had a terabyte of free disk and fast uploads
+  from the workstation (about 19 MB/s for the weights, against about 1 MB/s to two others). The
+  others failed on a resource, not on health (one also failed the self-test, see D-016):
+  - The A6000 machine: 8.9 GB free disk on a full filesystem. vLLM 0.34.0 cannot share the engine's
+    environment (a dry run shows it replaces torch 2.15.0 with 2.14.0 and CUDA 13.2 with 13.0), so
+    it needs its own environment (measured here at 8.1 GB, next to 5.5 GB for ours).
+  - An RTX PRO 4500 machine (32 GB): another user's idle vLLM server held 23.3 GB of the GPU's
+    memory, leaving 8.8 GB, less than the tuned Hugging Face batch of 32 needs (about 10 GB), and
+    it could become active at any time.
+  - An RTX 5090 machine (32 GB): idle GPU, but a 99% full disk that shrank from 18 to 12 GB during
+    the survey (other users writing), which cannot hold both environments plus the weights.
+  - Not considered: Turing GPUs and T4s (no bf16), an 8 GB card (too small), ARM unified-memory
+    machines (unrepresentative).
+- **Caveats to state wherever its numbers appear:**
+  - Consumer GPU with 448 GB/s of memory bandwidth, the lowest of the machines surveyed (the A6000
+    has 768 GB/s, the 5090 about 1.8 TB/s; published specifications, not measured here), so absolute throughput is lower than on the A6000.
+    All systems share the GPU, so comparisons between them hold; absolute numbers do not transfer.
+  - A slower GPU hides CPU overhead: this engine is Python, and on a faster GPU its per-step
+    scheduling cost would be a larger share of each step. A headline comparison should therefore be
+    repeated on a second GPU class before it is called general.
+  - 16 GB rules out Hugging Face batch 64 (about 20 GB), which D-015 found equivalent to batch 32.
+  - The fleet is shared (about 20 login sessions were open); the load generator flags GPU contention
+    and the GPU is checked before every batch of runs.
+- **Validation on this machine (commit 7f2de3c, clean tree):** torch 2.15.0+cu132 and transformers
+  5.23.0 in the engine environment; vLLM 0.34.0 with torch 2.14.0+cu130 in its own. The 176 CPU
+  tests and the 3 GPU tests against the real weights passed. `bench/greedy_eval.py` in bf16 (engine
+  against Hugging Face, same GPU, 200 prompts x 64 tokens, result in
+  `results/greedy-eval-5060ti-bf16.json`): 200 of 200 identical, teacher-forced top-1 agreement
+  12800 of 12800, max logit difference 0.0. This is the same agreement the A6000 gave. vLLM served
+  the model (bf16, max model length 4096, 85% GPU memory use, about 13 GB in use) and accepted
+  token-id prompts; one 8-token greedy completion was a smoke test only, not a measurement.
+- **Correction recorded:** my earlier note that vLLM 0.34.0 resolves to torch 2.15.0 was wrong; it
+  pins torch 2.14.0, which is why it needs a separate environment. A first run of the greedy
+  evaluation on this machine was labelled with the machine's id, which ended up inside the result
+  file; it was discarded and re-run under a hardware label (the leak scan caught it).
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~
