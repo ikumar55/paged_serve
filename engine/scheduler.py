@@ -18,6 +18,7 @@ which guarantees the oldest running sequence can always make progress (no livelo
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 import torch
@@ -31,9 +32,10 @@ class Request:
     id: int
     prompt: list[int]
     max_new_tokens: int
-    eos_token_id: int | None = None
+    eos_ids: frozenset[int] = frozenset()
     generated: list[int] = field(default_factory=list)
     finished: bool = False
+    finish_reason: str | None = None  # "stop" (EOS), "length" or "abort"
     preemptions: int = 0
 
     @property
@@ -51,6 +53,7 @@ class StepResult:
 
     new_tokens: dict[int, list[int]] = field(default_factory=dict)
     finished: list[int] = field(default_factory=list)
+    finish_reasons: dict[int, str] = field(default_factory=dict)  # for the ids in ``finished``
     preempted: list[int] = field(default_factory=list)
     prefilled: list[int] = field(default_factory=list)
     decoded: int = 0  # sequences in the batched decode
@@ -68,25 +71,25 @@ class Scheduler:
         self._caches: dict[int, PagedSequenceCache] = {}
         self._known: set[int] = set()
         self.total_preemptions = 0
+        self.aborted = 0
+        self.steps = 0
+        self.decode_steps = 0
+        self.decoded_sequences = 0
 
     @property
     def has_work(self) -> bool:
         return bool(self.waiting or self.running)
 
-    def add_request(
-        self,
-        request_id: int,
-        prompt: list[int],
-        max_new_tokens: int,
-        eos_token_id: int | None = None,
-    ) -> Request:
-        if not prompt:
+    def validate(self, prompt_len: int, max_new_tokens: int) -> None:
+        """Raise ``ValueError`` if a request of this size can never be served.
+
+        Only reads constants, so it is safe to call from another thread before submitting.
+        """
+        if prompt_len <= 0:
             raise ValueError("prompt must contain at least one token")
         if max_new_tokens <= 0:
             raise ValueError("max_new_tokens must be positive")
-        if request_id in self._known:
-            raise ValueError(f"request id {request_id} is already in use")
-        total = len(prompt) + max_new_tokens
+        total = prompt_len + max_new_tokens
         if total > self.model.cfg.max_position_embeddings:
             raise ValueError(
                 f"{total} tokens exceed the model's maximum of "
@@ -98,7 +101,24 @@ class Scheduler:
                 f"a request of {total} tokens needs {allocator.blocks_for(total)} blocks but the "
                 f"pool only has {allocator.num_blocks}"
             )
-        request = Request(request_id, list(prompt), max_new_tokens, eos_token_id)
+
+    def add_request(
+        self,
+        request_id: int,
+        prompt: list[int],
+        max_new_tokens: int,
+        eos_token_id: int | Collection[int] | None = None,
+    ) -> Request:
+        self.validate(len(prompt), max_new_tokens)
+        if request_id in self._known:
+            raise ValueError(f"request id {request_id} is already in use")
+        if eos_token_id is None:
+            eos_ids: frozenset[int] = frozenset()
+        elif isinstance(eos_token_id, int):
+            eos_ids = frozenset({eos_token_id})
+        else:
+            eos_ids = frozenset(eos_token_id)
+        request = Request(request_id, list(prompt), max_new_tokens, eos_ids)
         self._known.add(request_id)
         self.waiting.append(request)
         return request
@@ -106,10 +126,47 @@ class Scheduler:
     @torch.inference_mode()
     def step(self) -> StepResult:
         result = StepResult()
+        self.steps += 1
         self._make_room_for_decode(result)
         self._decode(result)
         self._admit(result)
         return result
+
+    def abort(self, request_id: int) -> bool:
+        """Drop a request (for example when its client disconnected) and free its blocks.
+
+        Returns False if it is unknown or already finished.
+        """
+        for request in self.running:
+            if request.id == request_id:
+                self.running.remove(request)
+                self._caches.pop(request_id).release()
+                self._finish(request, "abort")
+                self.aborted += 1
+                return True
+        for request in self.waiting:
+            if request.id == request_id:
+                self.waiting.remove(request)
+                self._finish(request, "abort")
+                self.aborted += 1
+                return True
+        return False
+
+    def stats(self) -> dict[str, int | float]:
+        allocator = self.pool.allocator
+        return {
+            "steps": self.steps,
+            "running": len(self.running),
+            "waiting": len(self.waiting),
+            "preemptions": self.total_preemptions,
+            "aborted": self.aborted,
+            "decode_steps": self.decode_steps,
+            "mean_decode_batch": self.decoded_sequences / self.decode_steps
+            if self.decode_steps
+            else 0.0,
+            "blocks_total": allocator.num_blocks,
+            "blocks_used": allocator.num_used,
+        }
 
     def run_to_completion(self) -> dict[int, list[int]]:
         """Step until nothing is left; returns generated tokens by request id (for tests)."""
@@ -156,6 +213,8 @@ class Scheduler:
         logits = self.model(last_tokens, positions=step_cache.positions(), cache=step_cache)
         next_tokens = logits[:, -1].argmax(dim=-1).tolist()
         result.decoded = len(batch)
+        self.decode_steps += 1
+        self.decoded_sequences += len(batch)
         for request, token in zip(list(batch), next_tokens, strict=True):
             self._accept(request, int(token), result)
 
@@ -181,8 +240,14 @@ class Scheduler:
     def _accept(self, request: Request, token: int, result: StepResult) -> None:
         request.generated.append(token)
         result.new_tokens.setdefault(request.id, []).append(token)
-        if token == request.eos_token_id or request.remaining == 0:
-            request.finished = True
+        if token in request.eos_ids or request.remaining == 0:
             self.running.remove(request)
             self._caches.pop(request.id).release()
+            self._finish(request, "stop" if token in request.eos_ids else "length")
             result.finished.append(request.id)
+            result.finish_reasons[request.id] = str(request.finish_reason)
+
+    @staticmethod
+    def _finish(request: Request, reason: str) -> None:
+        request.finished = True
+        request.finish_reason = reason

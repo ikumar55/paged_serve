@@ -48,6 +48,20 @@ python -m bench.loadgen plot results/my-engine-rate*.jsonl --out-dir results/plo
 
 Result files are never overwritten, and the server address is redacted from the recorded command.
 
+## Engine server
+
+The paged engine behind the same streaming API as the baselines, so the load generator drives either:
+
+```bash
+python -m engine.server --model-dir models/Llama-3.2-1B-Instruct --dtype bfloat16     --max-batch-size 32 --kv-cache-gb 8 --port 8000
+```
+
+`--kv-cache-gb` sizes the pool of KV blocks (block size `--block-size`, default 16 tokens). The
+scheduler admits requests while blocks are free and, when the pool runs short, preempts the newest
+running request and recomputes it later. `/info` reports the batch sizes, preemptions and block use.
+Greedy decoding and token-id prompts only, as in the baseline. Not yet benchmarked, and the
+attention path is the simple gather-based one.
+
 ## Baselines
 
 `bench.baselines.hf_server` serves a Hugging Face model with `generate` and static batching behind the same API, so the load generator can compare it with this engine and with vLLM:

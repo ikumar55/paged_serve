@@ -12,6 +12,7 @@ dependencies = [
     "fastapi",
     "httpx",
     "numpy",
+    "safetensors",
     "torch",
     "uvicorn",
 ]
@@ -20,7 +21,6 @@ dependencies = [
 # Reference implementations used only by tests and benchmarks (never by the engine itself).
 dev = [
     "matplotlib",
-    "safetensors",
     "transformers",
     "pytest",
     "ruff",
