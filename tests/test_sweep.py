@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import socket
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -131,3 +133,157 @@ def test_existing_results_are_never_overwritten(tmp_path: Path) -> None:
     entries = run_sweep(grid, backend, tmp_path, resume=True)
     assert [e["name"] for e in entries] == ["b2-w0-r1"]  # only the missing run was executed
     assert not any("b1-w0-r1" in event for event in backend.events)
+
+
+# -- several systems: engine and vLLM as well as the Hugging Face baseline ----------------------
+
+
+def sweep_args(*extra: str) -> Any:
+    from bench.sweep import parse_args
+
+    return parse_args(["--model", "models/m", "--out", "out", "--server-env", "env.json", *extra])
+
+
+def vllm_env(tmp_path: Path, version: str | None = "0.34.0") -> Path:
+    path = tmp_path / "env-vllm.json"
+    path.write_text(json.dumps({"packages": {"vllm": version, "torch": "2.14.0"}}))
+    return path
+
+
+def test_hf_static_commands_are_exactly_what_the_recorded_sweeps_used() -> None:
+    """The earlier results were produced by these commands; refactoring must not change them."""
+    from bench.sweep import loadgen_command, server_command
+
+    args = sweep_args("--port", "18437")
+    config = RunConfig(batch_size=16, window_ms=20, rate=4)
+    assert server_command(args, config) == [
+        sys.executable, "-m", "bench.baselines.hf_server",
+        "--model", str(Path("models/m")), "--model-id", "llama-3.2-1b-instruct",
+        "--dtype", "bfloat16", "--max-batch-size", "16", "--batch-window-ms", "20",
+        "--port", "18437",
+    ]  # fmt: skip
+    assert loadgen_command(args, config, Path("out/r.jsonl")) == [
+        sys.executable, "-m", "bench.loadgen", "run",
+        "--url", "http://127.0.0.1:18437", "--model", "llama-3.2-1b-instruct",
+        "--rate", "4", "--duration", "60", "--vocab-size", "100000",
+        "--label", "hf-static-b16-w20", "--fetch-server-info",
+        "--server-env", "env.json", "--seed", "0", "--out", str(Path("out/r.jsonl")),
+    ]  # fmt: skip
+
+
+def test_defaults_depend_on_the_system() -> None:
+    hf = sweep_args()
+    assert (hf.system, hf.windows_ms, hf.startup_timeout) == ("hf-static", "0,20,100", 180.0)
+    engine = sweep_args("--system", "engine")
+    assert (engine.windows_ms, engine.startup_timeout) == ("0", 180.0)
+    vllm = sweep_args("--system", "vllm")
+    assert (vllm.windows_ms, vllm.startup_timeout) == ("0", 600.0)  # vLLM warms up for a while
+
+
+def test_engine_command_and_label() -> None:
+    from bench.sweep import loadgen_command, ready_path, server_command
+
+    args = sweep_args("--system", "engine", "--kv-cache-gb", "6", "--block-size", "32")
+    config = RunConfig(batch_size=32, window_ms=0, rate=8)
+    command = server_command(args, config)
+    assert command[1:3] == ["-m", "engine.server"]
+    for flag, value in [
+        ("--model-dir", str(Path("models/m"))),
+        ("--max-batch-size", "32"),
+        ("--block-size", "32"),
+        ("--kv-cache-gb", "6"),
+    ]:
+        assert command[command.index(flag) + 1] == value
+    assert "--batch-window-ms" not in command
+    load = loadgen_command(args, config, Path("r.jsonl"))
+    assert load[load.index("--label") + 1] == "engine-b32"
+    assert "--fetch-server-info" in load
+    assert ready_path("engine") == "/info"
+
+
+def test_vllm_command_uses_its_own_python_and_has_no_info_endpoint(tmp_path: Path) -> None:
+    from bench.sweep import loadgen_command, ready_path, server_command
+
+    args = sweep_args(
+        "--system", "vllm", "--vllm-python", "/venvs/vllm/bin/python",
+        "--server-arg=--no-enable-prefix-caching",
+    )  # fmt: skip
+    config = RunConfig(batch_size=32, window_ms=0, rate=4)
+    command = server_command(args, config)
+    assert command[:3] == [
+        str(Path("/venvs/vllm/bin/python")),
+        "-m",
+        "vllm.entrypoints.openai.api_server",
+    ]
+    for flag, value in [
+        ("--max-num-seqs", "32"),
+        ("--max-model-len", "4096"),
+        ("--gpu-memory-utilization", "0.85"),
+        ("--host", "127.0.0.1"),
+        ("--served-model-name", "llama-3.2-1b-instruct"),
+    ]:
+        assert command[command.index(flag) + 1] == value
+    assert command[-1] == "--no-enable-prefix-caching"  # extra flags are appended, in order
+    load = loadgen_command(args, config, Path("r.jsonl"))
+    assert "--fetch-server-info" not in load  # vLLM would only produce a warning
+    assert ready_path("vllm") == "/health"
+
+
+def test_validation_rejects_results_that_would_be_mislabelled(tmp_path: Path) -> None:
+    from bench.sweep import validate_args
+
+    assert validate_args(sweep_args()) == []
+    assert validate_args(sweep_args("--system", "engine")) == []
+
+    engine_with_windows = sweep_args("--system", "engine", "--windows-ms", "0,20")
+    assert any("--windows-ms 0" in p for p in validate_args(engine_with_windows))
+
+    no_python = sweep_args("--system", "vllm", "--server-env", str(vllm_env(tmp_path)))
+    assert any("--vllm-python" in p for p in validate_args(no_python))
+
+    # The environment file must describe vLLM's environment, or the result would not say what ran.
+    engine_env = sweep_args(
+        "--system", "vllm", "--vllm-python", "py", "--server-env", str(vllm_env(tmp_path, None))
+    )
+    assert any("does not record a vllm version" in p for p in validate_args(engine_env))
+    missing = sweep_args("--system", "vllm", "--vllm-python", "py", "--server-env", "nope.json")
+    assert any("cannot read" in p for p in validate_args(missing))
+
+    good = sweep_args(
+        "--system", "vllm", "--vllm-python", "py", "--server-env", str(vllm_env(tmp_path))
+    )
+    assert validate_args(good) == []
+
+
+def test_main_refuses_an_invalid_sweep_before_starting_anything(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from bench import sweep
+
+    out = tmp_path / "out"
+    code = sweep.main(["--system", "vllm", "--model", "m", "--out", str(out), "--server-env", "x"])
+    assert code == 2
+    assert "--vllm-python is required" in capsys.readouterr().err
+    assert not out.exists()  # nothing was created
+
+
+def test_main_records_the_system_and_extra_server_args_in_the_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bench import sweep
+
+    class Backend(FakeBackend):
+        def __init__(self, args: Any) -> None:
+            super().__init__()
+
+    monkeypatch.setattr(sweep, "SubprocessBackend", Backend)
+    out = tmp_path / "engine"
+    code = sweep.main([
+        "--system", "engine", "--model", "m", "--out", str(out), "--server-env", "e.json",
+        "--batch-sizes", "8,32", "--rates", "2,4", "--server-arg=--flag-x",
+    ])  # fmt: skip
+    assert code == 0
+    entries = [json.loads(line) for line in (out / "manifest.jsonl").read_text().splitlines()]
+    assert [e["name"] for e in entries] == ["b8-w0-r2", "b8-w0-r4", "b32-w0-r2", "b32-w0-r4"]
+    assert {e["system"] for e in entries} == {"engine"}
+    assert all(e["server_args"] == ["--flag-x"] for e in entries)

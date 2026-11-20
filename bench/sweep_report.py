@@ -113,10 +113,26 @@ def load_rows(directory: Path) -> list[Row]:
                 row.e2e_p99_s = _p(summary.get("e2e_s"), "p99")
                 row.generator_saturated = bool(summary["generator_saturated"])
             after = ((meta.get("server_info") or {}).get("after") or {}).get("stats") or {}
-            row.mean_batch_size = after.get("mean_batch_size")
+            # The baseline calls it mean_batch_size, this engine mean_decode_batch.
+            row.mean_batch_size = after.get("mean_batch_size", after.get("mean_decode_batch"))
             row.wasted_slot_fraction = after.get("wasted_slot_fraction")
         rows.append(row)
     return sorted(rows, key=lambda r: (r.rate, r.batch_size, r.window_ms))
+
+
+HEADINGS = {
+    "hf-static": "Static batching sweep",
+    "engine": "Engine sweep (continuous batching, paged KV cache)",
+    "vllm": "vLLM sweep",
+}
+
+
+def default_heading(directory: Path) -> str:
+    """Named after the system the manifest recorded (older manifests recorded none)."""
+    for line in (directory / "manifest.jsonl").read_text().splitlines():
+        if line.strip():
+            return HEADINGS.get(json.loads(line).get("system", "hf-static"), HEADINGS["hf-static"])
+    return HEADINGS["hf-static"]
 
 
 def best_and_worst_per_rate(
@@ -272,9 +288,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--out", type=Path, help="write the markdown report here (never overwrites)"
     )
     parser.add_argument("--plot", type=Path, help="write the TTFT figure here")
+    parser.add_argument("--heading", help="report title (default: from the sweep's system)")
     args = parser.parse_args(argv)
     rows = load_rows(args.dir)
-    report = render_report(rows)
+    report = render_report(rows, args.heading or default_heading(args.dir))
     if args.out is None:
         print(report)
     else:

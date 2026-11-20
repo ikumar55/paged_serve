@@ -170,3 +170,45 @@ def test_cli_writes_report_and_plot_and_never_overwrites(tmp_path: Path) -> None
 def test_plot_handles_a_single_batch_size(tmp_path: Path) -> None:
     plot_ttft([make_row(rate=1), make_row(rate=2)], tmp_path / "one.png")
     assert (tmp_path / "one.png").stat().st_size > 0
+
+
+def write_engine_sweep(directory: Path, system: str | None) -> None:
+    results = [ok_result(i, sent_s=i * 0.5, ttft_s=0.2) for i in range(10)]
+    meta = {"server_info": {"after": {"stats": {"mean_decode_batch": 5.5}}}}  # the engine's name
+    write_results(directory / "b32-w0-r2.jsonl", meta, results, summarize(results))
+    entry = {
+        "name": "b32-w0-r2",
+        "batch_size": 32,
+        "window_ms": 0,
+        "rate": 2,
+        "status": "ok",
+        "result_file": "b32-w0-r2.jsonl",
+        "contended": False,
+    }
+    if system is not None:
+        entry["system"] = system
+    (directory / "manifest.jsonl").write_text(json.dumps(entry) + "\n")
+
+
+def test_engine_batch_statistic_is_read_under_its_own_name(tmp_path: Path) -> None:
+    write_engine_sweep(tmp_path, "engine")
+    assert load_rows(tmp_path)[0].mean_batch_size == 5.5
+
+
+@pytest.mark.parametrize(
+    ("system", "title"),
+    [
+        (None, "# Static batching sweep"),  # manifests written before systems were recorded
+        ("hf-static", "# Static batching sweep"),
+        ("engine", "# Engine sweep"),
+        ("vllm", "# vLLM sweep"),
+    ],
+)
+def test_report_title_follows_the_system(tmp_path: Path, system: str | None, title: str) -> None:
+    write_engine_sweep(tmp_path, system)
+    out = tmp_path / "REPORT.md"
+    assert main(["--dir", str(tmp_path), "--out", str(out)]) == 0
+    assert out.read_text().startswith(title)
+    custom = tmp_path / "custom.md"
+    assert main(["--dir", str(tmp_path), "--out", str(custom), "--heading", "My title"]) == 0
+    assert custom.read_text().startswith("# My title")
