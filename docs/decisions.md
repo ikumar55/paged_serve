@@ -225,8 +225,61 @@ estimates are recorded here as if they were results.
   fleet's prefix-cache hit rate was 9 x 16 of 12 x 19 prompt tokens with the approximate policy,
   where every group stays on one replica, against 6 x 16 with round robin, which computes each
   group on both. That is the arithmetic of the example, checked by a test, not a benchmark of
-  routing quality. The comparison of the four policies under load, and of how far the approximate
-  policy drifts from the precise one, is not yet run.
+  routing quality.
+
+  **Policy comparison on a mock fleet** (`bench/router_compare.py`; three result files
+  `results/router-compare-mock-*.json`, each with a `.md` report). This is the mock backend of D-008
+  with placeholder timing, so it describes the routing policies and the plumbing and **says nothing
+  about a GPU**. Setup common to the three runs: 4 mock replicas, with the replicas, the router and
+  the load generator all on one Windows laptop; three workload seeds (0, 1, 2); 600 requests per
+  run; shared prefixes of 512 tokens with unequal popularity (skew 1), unique suffix median 64
+  tokens, output median 32; every variant gets the identical requests for a seed (checked by a
+  digest stored per run) on a fresh fleet; no warm-up. Cells are the mean over the three seeds with
+  the minimum to maximum in brackets, so the brackets are a spread and not a confidence interval.
+  Three experiments, the third added after seeing the first two (below) to remove two problems found
+  in them:
+  - **A (ample cache):** 8 prefixes, 4 GB pool per replica, mock slowed 4x, 45 req/s, load cap 16.
+    All four policies had the *same* fleet hit rate, 82.9%, and in every run exactly 290,816 hit
+    tokens, which is 600 x 512 minus 32 x 512: each of the 8 prefixes computed once on each of the 4
+    replicas, which is the worst case for a cache that never evicts (a policy that kept each prefix
+    on one replica would compute each only once). Reason, from the policy counters: with the cap at 16 in flight the two prefix policies
+    sent only about a tenth of their requests to the replica they believed held the prefix
+    (approximate: 59 matched, 533 sent elsewhere because the holder was over the cap, 8 with no
+    match, per 600), so they behaved like least-outstanding, and with a cache big enough for
+    everything each policy then computed each prefix once on every replica. The fleet was also
+    overloaded (about 34 req/s achieved of 45 offered), and the load generator sent late in one run.
+    So this run says the cap, not the policy, decided; it does not say routing cannot help.
+  - **B (tight cache):** 64 prefixes, 0.25 GB pool (about 512 blocks) per replica, otherwise as A.
+    Hit rate: round-robin 43.9% (43.1 to 44.5), least-outstanding 43.9% (43.2 to 45.1), approximate
+    46.3% (44.6 to 48.4), precise 43.6% (42.2 to 46.1). Only the approximate policy's range just
+    clears round-robin's; the rest is within run spread. The fleet was badly overloaded (about 23.5 of
+    45 req/s, 952 preemptions over all runs, TTFT p50 about 4 s for every policy), and the cap again
+    sent about 84% of the approximate policy's requests elsewhere.
+  - **C (tight cache, cap off, lighter load):** B's workload with the load cap at 1000 (never
+    reached) and the mock slowed 2x at 30 req/s (about 28 req/s achieved, no preemptions). Hit rate:
+    round-robin 42.2% (40.9 to 43.1), least-outstanding 43.7% (41.2 to 45.3), **approximate 70.9%
+    (69.7 to 72.7), precise 67.8% (66.8 to 68.9)**. TTFT p50 78, 82, 64 and 66 ms, but TTFT p99 129,
+    153, 143 and 140 ms (ranges overlap), so a lower median is shown and a better tail is not. The
+    cost is concentration: computed-token imbalance (busiest replica against an even split) 1.06,
+    1.11, 1.31 and 1.28, served-request imbalance 1.00, 1.02, 1.13 and 1.12, because requests follow
+    the hot prefixes to the replicas that hold them.
+  - **Memory limit of the approximate policy (in C):** unlimited 70.9%; limited to 1024 remembered
+    chunks 64.2% (63.2 to 65.3); to 256 chunks 46.2% (44.0 to 48.4), no better than
+    least-outstanding. The workload has about 2048 shared-prefix chunks plus unique suffix chunks.
+  - **Drift of approximate from precise:** in C the approximate policy did not lag the precise one,
+    it was about 3 points higher with non-overlapping ranges. A likely cause, **not tested**: the
+    approximate policy records a prefix the moment it routes a request, while the precise policy
+    learns of it at the next poll (every 0.5 s, about 15 requests at this rate), and the precise
+    policy made 134 decisions with no match against the approximate policy's 61. Replica evictions
+    (about 5,400 to 6,000 blocks per run in C) did not make the approximate policy worse than the
+    precise one in these runs.
+  - **Not established:** anything about a GPU, since all step times are placeholders; whether the
+    TTFT differences (a few to a dozen milliseconds) are real; anything beyond this one workload
+    shape and three seeds; behaviour on Linux. The default load cap of 16 switches prefix affinity
+    off once replicas hold that many requests in flight (A and B), so the cap has to be chosen
+    against the load, which is an open item. The result files record commit `1c8e080` with `dirty`
+    true: the script was not yet committed when they were produced, and it is byte-identical to the
+    version committed with them.
 
 ### D-008 Mock backend for router, deployment and CI work
 
@@ -571,4 +624,4 @@ Design ideas taken from public papers and documentation; no code was copied.
 
 | Date | Change | Metric | Before | After | Result file and command |
 | --- | --- | --- | --- | --- | --- |
-| | _No entries yet._ | | | | |
+| 2026-11-20 | Prefix-aware routing (approximate) against round-robin, mock fleet, tight cache, load cap off (D-007; **mock backend, uncalibrated timing, not GPU**) | Fleet prefix-cache hit rate, mean of 3 seeds | 42.2% (round-robin) | 70.9% (approximate) | `results/router-compare-mock-tight-cache-uncapped.json`, `python -m bench.router_compare ... --load-cap 1000 --mock-time-scale 2 --rate 30` (full command in the file) |

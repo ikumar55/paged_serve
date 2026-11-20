@@ -21,7 +21,7 @@ from engine.paged_cache import KVPool
 from engine.scheduler import Scheduler
 from router import server as router_server
 from router.app import create_router_app
-from router.policies import Policy, make_policy
+from router.policies import DEFAULT_MAX_ENTRIES, Policy, make_policy
 from tests.fake_server import UvicornServer
 
 BLOCK = 4
@@ -370,6 +370,26 @@ def test_main_builds_the_router_from_the_command_line(monkeypatch: pytest.Monkey
         router_server.main(["--replica", "a:1"])  # not an http(s) URL
     with pytest.raises(SystemExit):
         router_server.main(["--policy", "round-robin"])  # no replica
+
+
+def test_the_command_line_sets_the_approximate_policys_memory_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policies: list[Policy] = []
+    monkeypatch.setattr(
+        router_server,
+        "create_router_app",
+        lambda urls, policy, **kwargs: policies.append(policy),
+    )
+    monkeypatch.setattr(router_server.uvicorn, "run", lambda app, **kw: None)
+    base = ["--replica", "http://a:1", "--policy", "approx-prefix"]
+    router_server.main([*base, "--max-entries", "37"])
+    router_server.main(base)
+    assert [getattr(p, "max_entries", None) for p in policies] == [37, DEFAULT_MAX_ENTRIES]
+    for bad in ("0", "-3"):
+        with pytest.raises(SystemExit):
+            router_server.main([*base, "--max-entries", bad])
+    assert len(policies) == 2  # a refused limit never got as far as building a router
 
 
 def test_a_router_needs_at_least_one_replica() -> None:

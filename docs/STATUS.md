@@ -5,7 +5,7 @@ the work up. **Update this file at the end of every step.** It complements
 [`decisions.md`](decisions.md), which holds each design decision with its measured effect; where
 the two disagree, `decisions.md` is the record and this file is the map.
 
-Last updated: 2026-11-20, at commit `c061f3b`.
+Last updated: 2026-11-20, after the router policy comparison on a mock fleet (step 1 of section 7).
 
 ## 1. The project
 
@@ -33,7 +33,8 @@ GPU through the scheduler, the server or the router.
 | Prefix cache (D-005) | `engine/prefix_cache.py`, `block_allocator.py` | Tiny-model tests incl. eviction and preemption; six broken variants fail | Real weights, bf16, hit rates on real traffic; reused blocks may differ from an uncached run in rounding |
 | Engine server | `engine/server.py` | Over real sockets on a tiny model: output equals reference, streaming, EOS, disconnects abort and free blocks, the load generator drives it | GPU; `--kv-cache-gb` sizing; throughput |
 | Mock backend (D-008) | `engine/mock.py`, `server.py --backend mock` | Output is a pure function of the last token and position, so batching/preemption/routing cannot change it; pool accounting matches a real model | **Timing is uncalibrated placeholders**; only the decode step is loosely based on D-015 |
-| Router (D-007) | `router/policies.py`, `app.py`, `server.py` | Mock replicas and router over real sockets: pass-through, the four policies, load cap, failover, 503, disconnect propagation, load generator through the router; seven of eight broken variants fail (the eighth is an equivalent mutant) | Real engine replicas, GPU, load, mid-stream replica death, any policy comparison under load |
+| Router (D-007) | `router/policies.py`, `app.py`, `server.py` | Mock replicas and router over real sockets: pass-through, the four policies, load cap, failover, 503, disconnect propagation, load generator through the router; seven of eight broken variants fail (the eighth is an equivalent mutant); `--max-entries` (the approximate policy's memory limit) reaches the policy from the command line | Real engine replicas, GPU, mid-stream replica death. The mock-fleet comparison below is not GPU evidence |
+| Router policy comparison (D-007) | `bench/router_compare.py` | Replicas and router as real subprocesses over real sockets, mock backend; 29 deliberately broken variants of the script, the router flag and the policy factory each make a test fail. Writing them found one real flaw (a refused write could leave half a result behind, now fixed) and a test that the digest of the workload was recorded from what was meant rather than what was sent (now from what is sent); results in section 3 | Anything about a GPU; Linux; more than 3 seeds and one workload shape; the load cap's effect beyond the two settings tried |
 | Load generator and workloads (D-014) | `bench/loadgen.py`, `workload.py`, `client.py`, `runner.py`, `metrics.py`, `results_io.py`, `plots.py` | Calibrated against a fake server; pinned hashes prove old workloads still regenerate exactly; optional shared-prefix mode | - |
 | HF static-batching baseline (D-015) | `bench/baselines/`, `bench/sweep*.py` | Swept and recorded on an RTX A6000 (the only real benchmark numbers, section 3) | Not yet re-run on the chosen benchmark machine |
 | Sweep tooling for engine and vLLM | `bench/sweep.py` | Command construction, validation and manifests tested with fake servers; the hf-static commands are pinned to what the recorded sweeps used | The vLLM server flags are from memory and unverified for vLLM 0.34.0; nothing has launched a real engine or vLLM sweep |
@@ -41,9 +42,11 @@ GPU through the scheduler, the server or the router.
 | Rental-GPU setup | `deploy/setup_gpu_box.sh`, `docs/gpu-runbook.md` | Shell syntax only | **Never run on a real machine** |
 | Dockerfiles, Kubernetes manifests | - | - | Not written; `deploy/` has only the setup script |
 
-Test suite (CPU): `299 passed, 2 failed, 10 deselected` on Windows. The 10 deselected are GPU and
-real-weights tests. The 2 failures are the load generator's timing tests, which are flaky on
-Windows only (see section 6); they passed on the Linux machines in the log.
+Test suite (CPU): `320 passed, 1 failed, 10 deselected` on Windows at this step (it was `299 passed,
+2 failed` before it). The 10 deselected are GPU and real-weights tests. The failures are the load
+generator's two timing tests, which fail intermittently on Windows only (one or both on any given
+run; see section 6); they passed on the Linux machines in the log. The new tests add about 40
+seconds on Windows, mostly from starting servers.
 
 ## 3. The only real measurements so far
 
@@ -64,6 +67,31 @@ numbers next to anything measured on another GPU.
 
 D-016: one RTX PRO 6000 Blackwell returned different results for identical inputs; results from
 it are retracted. Every GPU measurement must be preceded by the self-test.
+
+### Mock-fleet router comparison (not GPU, timing uncalibrated)
+
+Three runs of `bench/router_compare.py` (4 mock replicas and the router as processes on this Windows
+laptop, 3 seeds, 600 requests each; details, counters and caveats in D-007, files
+`results/router-compare-mock-*.json` and `.md`, every one labelled mock/uncalibrated). Do not quote
+these as performance. What they do show, about routing and plumbing:
+
+- **Default load cap (16) at a load near saturation turns prefix routing off.** In the two runs
+  with it, the prefix policies sent about 85 to 90% of requests elsewhere because the holder was
+  over the cap. With an ample cache all four policies then had identical hit tokens (A), and with a
+  tight cache the hit rates were within run spread except a small edge for the approximate policy
+  (B). Those two runs were also overloaded.
+- **With the cap off and a lighter load (C), prefix-aware routing clearly raised the fleet hit
+  rate:** approximate 70.9%, precise 67.8%, against round-robin 42.2% and least-outstanding 43.7%
+  (three seeds, ranges do not overlap). TTFT p50 fell (78 to 64 ms in a placeholder-timed mock), p99
+  did not, and work concentrated on the replicas holding the hot prefixes (computed-token imbalance
+  1.3 against 1.06).
+- **The approximate policy's memory matters a lot:** limited to 1024 chunks 64.2%, to 256 chunks
+  46.2% (about least-outstanding). It did **not** lag the precise policy; it was higher by about 3
+  points, probably because the precise policy only learns of a prefix at its next 0.5 s poll (an
+  untested explanation).
+
+The load cap therefore has to be chosen against the load (open item), and the comparison has to be
+repeated on a calibrated mock and on real replicas before any of this is called a router result.
 
 ## 4. How the work is done (conventions to keep)
 
@@ -103,6 +131,10 @@ python -m router.server --replica http://127.0.0.1:8001 --replica http://127.0.0
 python -m bench.loadgen run --url ... --rate 4 --duration 60 \
     --shared-prefix-groups 8 --shared-prefix-len 512 --shared-prefix-skew 1 --out results/x.jsonl
 python -m bench.sweep --system {hf-static,engine,vllm} ...  # see the module docstring
+# Router policies on a mock fleet (CPU only; writes <out>.json and <out>.md, never overwrites):
+python -m bench.router_compare --out results/router-compare-mock-x.json --label "..." \
+    --replicas 4 --rate 30 --num-requests 600 --seeds 0,1,2 --mock-time-scale 2 \
+    --shared-prefix-groups 64 --kv-cache-gb 0.25 --load-cap 1000 --approx-max-entries 256,1024
 ```
 
 `README.md` has the user-facing version; `docs/gpu-runbook.md` is the ordered plan for a rented-GPU
@@ -133,16 +165,24 @@ session.
    downloaded by hand into `models/`, and an SSH deploy key (scoped to this repository, private key
    on the laptop only) behind the `origin` remote's host alias. If a push fails with "could not
    resolve hostname", the SSH config was lost again.
-9. `README.md`'s status line ("Week 1 of 6") and the empty change-log table at the end of
-   `decisions.md` are stale.
+9. `README.md`'s status line ("Week 1 of 6") is stale. (The change-log table at the end of
+   `decisions.md` now has its first row, the mock-fleet comparison.)
+10. **The router's default load cap (16 in flight per replica) disables prefix affinity** once
+    replicas hold that many requests, which a loaded fleet does; see section 3. Choose it against
+    the load, and always read the policies' `load_fallbacks` counter next to a hit rate.
+11. **A short pilot hides saturation.** The load for the mock-fleet runs was first judged from
+    200-request pilots, which looked fine; at 600 requests two of the three runs were overloaded.
+    Judge a load from runs long enough to show the queue growing (achieved against offered rate).
+12. **The mock-fleet result files record a commit and `dirty: true`**: the script was not committed
+    when they were made. It is byte-identical to the committed version (checksums compared).
 
 ## 7. Suggested next steps, in order
 
-1. **Router policy comparison on a mock fleet.** A script that runs the four policies against N mock
-   replicas under the shared-prefix workload (with unequal popularity) and writes a write-once
-   result file with fleet hit rate, TTFT and balance, labelled as mock/uncalibrated. This is the
-   CPU-only version of the router gate. Then run it with the approximate policy's memory limited, to
-   see how far it drifts from the precise policy.
+1. ~~**Router policy comparison on a mock fleet.**~~ **Done** (`bench/router_compare.py`, three
+   runs, D-007). Follow-ups that would make it count as the CPU-only router gate: a load cap chosen
+   against the load (try several, e.g. 16, 32, 64, off, at one load that is not overloaded); a
+   longer horizon and a Linux machine; the calibrated mock (below) so TTFT means something; and a
+   test of the untested explanation for precise trailing approximate (shorten `--poll-interval`).
 2. **Draft D-018** (rented GPU, superseding D-017's machine choice) with provider, instance type,
    price and driver left to fill in. Rental was planned for **Monday 2026-11-23**; the user had no
    provider or budget in mind. Prices checked on 2026-11-20 from the providers' own pages: RunPod
@@ -164,7 +204,8 @@ session.
 
 - `docs/decisions.md`: D-001 to D-017, each with decision, reasons, alternatives and measured effect.
 - `docs/gpu-runbook.md`: the rented-GPU procedure.
-- `results/`: write-once benchmark outputs (A6000 sweeps, greedy evaluations, the variation table).
+- `results/`: write-once benchmark outputs (A6000 sweeps, greedy evaluations, the variation table,
+  and `router-compare-mock-*` for the mock-fleet comparison, which is not GPU data).
 - Layout: `engine/` (model, KV cache, allocator, prefix cache, scheduler, server, mock), `router/`
   (policies, proxy, server), `bench/` (load generator, sweeps, baselines, GPU checks), `tests/`,
   `deploy/`.

@@ -15,7 +15,7 @@ from collections.abc import Sequence
 import uvicorn
 
 from router.app import create_router_app
-from router.policies import POLICIES, make_policy
+from router.policies import DEFAULT_MAX_ENTRIES, POLICIES, make_policy
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -39,6 +39,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=16,
         help="prefix policies: requests in flight on a replica above which it is not preferred",
     )
+    parser.add_argument(
+        "--max-entries",
+        type=int,
+        default=DEFAULT_MAX_ENTRIES,
+        help="approx-prefix: how many prompt chunks the router remembers (its memory limit)",
+    )
     parser.add_argument("--poll-interval", type=float, default=0.5, help="precise-prefix: seconds")
     parser.add_argument(
         "--cooldown", type=float, default=5.0, help="seconds a failed replica rests"
@@ -50,7 +56,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     for url in args.replica:
         if not url.startswith(("http://", "https://")):
             parser.error(f"replica {url!r} must start with http:// or https://")
-    policy = make_policy(args.policy, chunk_tokens=args.chunk_tokens, load_cap=args.load_cap)
+    if args.max_entries <= 0:
+        parser.error("--max-entries must be positive")
+    policy = make_policy(
+        args.policy,
+        chunk_tokens=args.chunk_tokens,
+        load_cap=args.load_cap,
+        max_entries=args.max_entries,
+    )
     app = create_router_app(
         args.replica, policy, poll_interval_s=args.poll_interval, cooldown_s=args.cooldown
     )

@@ -4,6 +4,7 @@ import pytest
 
 from engine.prefix_cache import block_hashes
 from router.policies import (
+    DEFAULT_MAX_ENTRIES,
     POLICIES,
     ApproximatePrefix,
     LeastOutstanding,
@@ -205,3 +206,15 @@ def test_make_policy_builds_every_named_policy_and_rejects_others() -> None:
         ApproximatePrefix(chunk_tokens=0)
     with pytest.raises(ValueError):
         PrecisePrefix(load_cap=0)
+
+
+def test_make_policy_passes_the_approximate_policys_memory_limit_through() -> None:
+    policy = make_policy("approx-prefix", chunk_tokens=CHUNK, max_entries=5)
+    assert isinstance(policy, ApproximatePrefix) and policy.max_entries == 5
+    replicas = fleet(2)
+    for group in range(10):  # ten prompts of three chunks each would be 30 entries unbounded
+        route(policy, prompt(group, group + 100, group + 200), replicas)
+    assert policy.stats()["entries"] == 5
+    default = make_policy("approx-prefix")
+    assert isinstance(default, ApproximatePrefix) and default.max_entries == DEFAULT_MAX_ENTRIES
+    make_policy("round-robin", max_entries=5)  # other policies have no such memory and ignore it

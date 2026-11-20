@@ -43,6 +43,9 @@ class ReplicaState:
     block_size: int | None = None  # as last reported by the replica
 
 
+DEFAULT_MAX_ENTRIES = 200_000  # prompt chunks the approximate policy remembers
+
+
 class Policy(Protocol):
     name: str
 
@@ -124,7 +127,10 @@ class ApproximatePrefix:
     name = "approx-prefix"
 
     def __init__(
-        self, chunk_tokens: int = 16, load_cap: int = 16, max_entries: int = 200_000
+        self,
+        chunk_tokens: int = 16,
+        load_cap: int = 16,
+        max_entries: int = DEFAULT_MAX_ENTRIES,
     ) -> None:
         if chunk_tokens <= 0 or load_cap <= 0 or max_entries <= 0:
             raise ValueError("chunk_tokens, load_cap and max_entries must be positive")
@@ -224,13 +230,22 @@ class PrecisePrefix:
 POLICIES = ("round-robin", "least-outstanding", "approx-prefix", "precise-prefix")
 
 
-def make_policy(name: str, *, chunk_tokens: int = 16, load_cap: int = 16) -> Policy:
+def make_policy(
+    name: str,
+    *,
+    chunk_tokens: int = 16,
+    load_cap: int = 16,
+    max_entries: int = DEFAULT_MAX_ENTRIES,
+) -> Policy:
+    """``max_entries`` is the approximate policy's memory (remembered chunks); others ignore it."""
     if name == "round-robin":
         return RoundRobin()
     if name == "least-outstanding":
         return LeastOutstanding()
     if name == "approx-prefix":
-        return ApproximatePrefix(chunk_tokens=chunk_tokens, load_cap=load_cap)
+        return ApproximatePrefix(
+            chunk_tokens=chunk_tokens, load_cap=load_cap, max_entries=max_entries
+        )
     if name == "precise-prefix":
         return PrecisePrefix(load_cap=load_cap)
     raise ValueError(f"unknown policy {name!r}; choose from {', '.join(POLICIES)}")
