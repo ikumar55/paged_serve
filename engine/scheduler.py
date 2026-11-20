@@ -20,12 +20,33 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Collection
 from dataclasses import dataclass, field
+from typing import Protocol
 
 import torch
+from torch import Tensor
 
-from engine.model import Llama
+from engine.config import LlamaConfig
+from engine.kv_cache import KVCache
 from engine.paged_cache import KVPool, PagedBatchCache, PagedSequenceCache
 from engine.prefix_cache import match_prefix
+
+
+class LanguageModel(Protocol):
+    """What the scheduler needs from a model: the Llama forward pass or the timing-only mock."""
+
+    @property
+    def cfg(self) -> LlamaConfig: ...
+
+    @property
+    def device(self) -> torch.device: ...
+
+    def __call__(
+        self,
+        input_ids: Tensor,
+        positions: Tensor | None = None,
+        cache: KVCache | None = None,
+        last_only: bool = False,
+    ) -> Tensor: ...
 
 
 @dataclass
@@ -63,7 +84,7 @@ class StepResult:
 class Scheduler:
     def __init__(
         self,
-        model: Llama,
+        model: LanguageModel,
         pool: KVPool,
         max_batch_size: int = 8,
         enable_prefix_caching: bool = True,

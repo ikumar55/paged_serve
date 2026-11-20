@@ -108,6 +108,14 @@ class BlockAllocator:
         self._by_hash[content_hash] = block
         return True
 
+    def cached_hashes(self) -> list[int]:
+        """The content hashes currently indexed, held or not.
+
+        Meant for another thread to read (a router polls it): copying a dictionary's keys is a
+        single step under CPython's global lock, so it never sees the dictionary mid-change.
+        """
+        return list(self._by_hash)
+
     def lookup(self, content_hash: int) -> int | None:
         """Take a holder on the block with this content, if one is cached; None otherwise."""
         block = self._by_hash.get(content_hash)

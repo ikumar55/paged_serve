@@ -211,11 +211,24 @@ estimates are recorded here as if they were results.
 
 ### D-008 Mock backend for router, deployment and CI work
 
-- **Status:** decided.
+- **Status:** decided; implemented in `engine/mock.py` and `engine.server --backend mock`, with a
+  timing model that is **not yet calibrated**.
 - **Decision:** The engine gets a `--backend=mock` mode driven by a calibrated timing model.
 - **Why:** Router, Kubernetes and CI work should never need a GPU. The timing model is also the
   starting point for the optional serving simulator.
-- **Measured effect:** n/a.
+- **Implementation:** the mock replaces only the model. The scheduler, block pool, prefix cache,
+  preemption and HTTP server are the real ones, so a block is claimed, shared and evicted exactly
+  as with a real model and tokens served from the prefix cache cost no prefill time. The mock
+  sleeps for a prefill or decode duration from a `TimingModel` and returns a next token that is a
+  pure function of the last token and its position, so output does not depend on batching,
+  preemption or the replica, and a router that corrupts a stream is caught. The pool is sized as
+  Llama-3.2-1B in bf16 would be for the given `--kv-cache-gb`, so memory pressure appears when
+  it would on a real GPU of that size. The server also serves `/cache`, the content hashes of the
+  blocks it holds, for the precise router policy of D-007.
+- **Measured effect:** none, and the timing is a placeholder: only the 9 ms decode step is loosely
+  based on the 9 to 11 ms inter-token latency recorded for the Hugging Face baseline on an A6000
+  (D-015); the prefill figures are guesses. Anything measured against the mock describes the
+  router and the plumbing, not a GPU, until the timing model is calibrated against real runs.
 
 ### D-009 Tooling and repository layout
 

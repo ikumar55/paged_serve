@@ -34,8 +34,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from engine.config import LlamaConfig
+from engine.mock import MockModel, TimingModel
 from engine.paged_cache import KVPool
-from engine.scheduler import Scheduler, StepResult
+from engine.scheduler import LanguageModel, Scheduler, StepResult
 from engine.weights import load_model
 
 DTYPES = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
@@ -225,6 +227,22 @@ def create_app(
 
     app = FastAPI(title="pagedserve engine", lifespan=lifespan)
     app.state.runner = runner
+
+    @app.get("/cache")
+    async def cache_contents() -> dict[str, Any]:
+        """Hashes of the prompt blocks this replica holds, for a prefix-aware router to score.
+
+        The hashes are the chain defined in :mod:`engine.prefix_cache` (hex strings, since they
+        are 128-bit), so a router that knows the block size can hash a prompt itself and count how
+        many of its leading blocks are here.
+        """
+        allocator = scheduler.pool.allocator
+        return {
+            "block_size": allocator.block_size,
+            "prefix_caching": scheduler.prefix_caching,
+            "hashes": [f"{h:032x}" for h in allocator.cached_hashes()],
+        }
+
     static_info = {
         "server": "pagedserve",
         "model_id": model_id,
@@ -337,7 +355,13 @@ async def _stream(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0] if __doc__ else None)
-    parser.add_argument("--model-dir", type=Path, required=True)
+    parser.add_argument(
+        "--backend",
+        choices=("llama", "mock"),
+        default="llama",
+        help="mock: no model, only the timing model (router, CI and deployment work)",
+    )
+    parser.add_argument("--model-dir", type=Path, help="required for the llama backend")
     parser.add_argument("--model-id", help="name to report in /info (default: directory name)")
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="bfloat16")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -349,36 +373,70 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--kv-cache-gb", type=float, default=4.0, help="memory for the paged KV cache"
     )
+    mock = parser.add_argument_group("mock backend timing (placeholders, not measurements)")
+    defaults = TimingModel()
+    mock.add_argument("--mock-prefill-base-ms", type=float, default=defaults.prefill_base_ms)
+    mock.add_argument(
+        "--mock-prefill-ms-per-token", type=float, default=defaults.prefill_ms_per_token
+    )
+    mock.add_argument("--mock-decode-base-ms", type=float, default=defaults.decode_base_ms)
+    mock.add_argument(
+        "--mock-decode-ms-per-seq", type=float, default=defaults.decode_ms_per_sequence
+    )
+    mock.add_argument("--mock-time-scale", type=float, default=defaults.time_scale)
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default: local only)")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
 
-    dtype = DTYPES[args.dtype]
-    model, eos_ids = load_model(args.model_dir, dtype, args.device)
-    per_token = model.cfg.kv_bytes_per_token(torch.empty((), dtype=dtype).element_size())
+    if args.backend == "llama":
+        if args.model_dir is None:
+            raise SystemExit("--model-dir is required for the llama backend")
+        dtype = DTYPES[args.dtype]
+        model: LanguageModel
+        model, eos_ids = load_model(args.model_dir, dtype, args.device)
+        per_token = model.cfg.kv_bytes_per_token(torch.empty((), dtype=dtype).element_size())
+        pool_dtype, pool_device = dtype, args.device
+        info: dict[str, Any] = {
+            "backend": "llama",
+            "dtype": args.dtype,
+            "device": (
+                torch.cuda.get_device_name(model.device) if model.device.type == "cuda" else "cpu"
+            ),
+            "torch": torch.__version__,
+            "cuda_build": torch.version.cuda,
+        }
+        model_id = args.model_id or args.model_dir.name
+    else:
+        timing = TimingModel(
+            args.mock_prefill_base_ms,
+            args.mock_prefill_ms_per_token,
+            args.mock_decode_base_ms,
+            args.mock_decode_ms_per_seq,
+            args.mock_time_scale,
+        )
+        model, eos_ids = MockModel(timing=timing), []
+        # Size the pool as the real model would be, so preemption and eviction happen when they
+        # would on a real GPU of this memory (Llama-3.2-1B in bf16).
+        per_token = LlamaConfig.llama_3_2_1b().kv_bytes_per_token(2)
+        pool_dtype, pool_device = torch.float32, "cpu"
+        info = {"backend": "mock", "uncalibrated_timing": timing.to_dict()}
+        model_id = args.model_id or "mock"
+
     num_blocks = int(args.kv_cache_gb * 2**30 // (per_token * args.block_size))
     if num_blocks < 1:
         raise SystemExit("--kv-cache-gb is too small for even one block")
-    pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
+    pool = KVPool(model.cfg, num_blocks, args.block_size, pool_dtype, pool_device)
     scheduler = Scheduler(
         model,
         pool,
         max_batch_size=args.max_batch_size,
         enable_prefix_caching=not args.no_prefix_caching,
     )
-    device_name = torch.cuda.get_device_name(model.device) if model.device.type == "cuda" else "cpu"
     app = create_app(
         scheduler,
         eos_ids,
-        model_id=args.model_id or args.model_dir.name,
-        info={
-            "dtype": args.dtype,
-            "device": device_name,
-            "torch": torch.__version__,
-            "cuda_build": torch.version.cuda,
-            "kv_blocks": num_blocks,
-            "kv_cache_gb": args.kv_cache_gb,
-        },
+        model_id=model_id,
+        info={**info, "kv_blocks": num_blocks, "kv_cache_gb": args.kv_cache_gb},
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0

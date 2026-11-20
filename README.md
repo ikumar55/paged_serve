@@ -70,6 +70,12 @@ batch sizes, preemptions, block use and prefix-cache hits. Greedy decoding and t
 only, as in the baseline. Not yet benchmarked, and the attention path is the simple gather-based
 one.
 
+`--backend mock` serves the same API with no model: the real scheduler and block pool, with the
+forward pass replaced by sleeps from a timing model (`--mock-*` options). It exists so the router,
+CI and deployment work need no GPU. Its timings are placeholders, not measurements; do not quote
+numbers from it as GPU results. `GET /cache` lists the content hashes of the blocks a replica
+holds.
+
 ## Baselines
 
 `bench.baselines.hf_server` serves a Hugging Face model with `generate` and static batching behind the same API, so the load generator can compare it with this engine and with vLLM:
