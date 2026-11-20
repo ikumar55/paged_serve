@@ -597,6 +597,76 @@ estimates are recorded here as if they were results.
   evaluation on this machine was labelled with the machine's id, which ended up inside the result
   file; it was discarded and re-run under a hardware label (the leak scan caught it).
 
+### D-018 One benchmark machine, rented: a dedicated single GPU (DRAFT)
+
+- **Status:** **draft, nothing is decided.** Provider, instance, price and driver are blank on
+  purpose; fill every `TO FILL` when the instance is rented (planned from Monday 2026-11-23), then
+  change this status to "decided". When decided, this supersedes the *machine choice* of D-017.
+  D-017 itself stays as written: its validation of the software stack on the RTX 5060 Ti is still a
+  true record.
+- **Decision:** The Hugging Face baseline, this engine and vLLM are all measured on one rented,
+  dedicated GPU, with one GPU model for all three systems.
+  - Provider: `TO FILL`
+  - Instance type and GPU model (the hardware name used in result labels, for example `h100`, never
+    the provider's instance id): `TO FILL`
+  - Price per hour, billing granularity, and the price of attached storage: `TO FILL`
+  - Driver version and the CUDA version it advertises (must be 13.2 or newer): `TO FILL`
+  - Budget cap in dollars and in hours: `TO FILL`
+  - Rented at, released at (UTC): `TO FILL`
+- **Why (reasons already in D-017 and D-015; nothing new has been measured for this draft):**
+  D-017's machine is on a shared fleet (about 20 login sessions were open, so every batch of runs
+  needs a contention check), and no benchmark has run on it, so switching discards no result. A
+  dedicated instance takes other users off the GPU, the disk and the memory, which were the reasons
+  the other four surveyed machines were rejected.
+- **Requirements,** checked in this order, stopping at the first failure (procedure in
+  `docs/gpu-runbook.md`):
+  1. Exactly one GPU visible, with bf16 support and memory for the tuned Hugging Face batch
+     (D-017 puts batch 64 at about 20 GB).
+  2. The driver advertises CUDA 13.2 or newer, because the pinned torch is `+cu132`
+     (`deploy/setup_gpu_box.sh` refuses otherwise; D-016 explains why a runtime newer than the
+     driver is not acceptable). vLLM 0.34.0 has its own environment with torch 2.14.0+cu130.
+  3. The D-016 determinism self-test passes on this instance (0 differing repeats), and its report is
+     stored in every result file.
+  4. At least 60 GB free disk, Python 3.12, Linux.
+  5. Providers that hand out containers usually fix the driver on the host, so read the advertised
+     CUDA version before paying for a whole session. (General knowledge about such providers, not
+     checked for the candidates below.)
+  If the instance is lost partway and replaced by a different GPU model, the comparison starts over
+  or the two halves are labelled as different machines; they are never mixed.
+- **Candidates.** Prices were recorded in `STATUS.md` on 2026-11-20 from the providers' own pages by
+  an earlier session; **they have not been re-checked in this one, so look again on the day**.
+
+  | Provider | Offer | Price per hour (recorded 2026-11-20) | To check before choosing |
+  | --- | --- | --- | --- |
+  | RunPod | H100 PCIe | $2.89 | Which driver and CUDA the host advertises; disk size and its price |
+  | Lambda | H100 PCIe | $3.79 | Whether it is a full VM with a driver that meets requirement 2 |
+  | AWS | H100 only in 8-GPU sizes (earlier session's finding) | not applicable | A single-GPU size would have to exist for this to be a candidate |
+
+- **What this changes in the plan (open items, not decisions):**
+  - D-017 ruled out Hugging Face batch 64 because 16 GB is too small; on an 80 GB card that no
+    longer holds. D-015 found its best setting at the edge of the grid, and the best batch size on a
+    faster GPU need not be 32. The runbook's baseline commands run only batch 32, so before 32 is
+    called "tuned" on this GPU, batches 16, 32 and 64 should be run there.
+  - D-017's caveat about hiding CPU overhead runs the other way on a faster GPU: this engine's
+    Python work per step is a larger share of each step, so the engine's number is likely to look
+    worse relative to vLLM here than on the 5060 Ti. That is a prediction to check, not a result.
+  - H100 numbers must not be placed next to the A6000 numbers of D-015, or next to any other GPU's.
+- **Rough budget (an estimate from the runbook's steps, not a measurement).** The runbook's sweeps
+  are 12 runs for each of three systems (four seeds, three rates) plus about 12 shared-prefix runs
+  with the prefix cache on and off, about 48 runs. Assuming 3 to 5 minutes per run (60 s of arrivals,
+  draining at saturation, a fresh server each time; vLLM starts slower) that is about 2.5 to 4 hours,
+  and setup, the smoke test and reports plausibly add 2 to 3 hours: 5 to 7 hours in all. At the two
+  recorded prices that is about $15 to $27. Because the engine has never run on CUDA, the first
+  session may be spent mostly fixing things, so a cap near twice that leaves room for one redo.
+  The budget itself is the user's decision and is left as `TO FILL` above.
+- **Caveats to state wherever its numbers appear:** one GPU class, so a headline comparison is not
+  called general until repeated on a second class; a rented instance is dedicated to the GPU but
+  its host's CPU and disk can still be shared, which the self-test and the load generator's lag
+  flag do not rule out; no hostnames, addresses or instance ids in result files.
+- **After the session:** the instance is stopped or terminated and attached storage deleted, and
+  the provider's console is checked afterwards (`docs/gpu-runbook.md`, section 6).
+- **Measured effect:** none yet.
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~

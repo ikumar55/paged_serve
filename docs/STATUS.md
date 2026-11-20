@@ -5,7 +5,8 @@ the work up. **Update this file at the end of every step.** It complements
 [`decisions.md`](decisions.md), which holds each design decision with its measured effect; where
 the two disagree, `decisions.md` is the record and this file is the map.
 
-Last updated: 2026-11-20, after the router policy comparison on a mock fleet (step 1 of section 7).
+Last updated: 2026-11-20, after the router policy comparison on a mock fleet and the D-018 draft
+(steps 1 and 2 of section 7).
 
 ## 1. The project
 
@@ -16,8 +17,7 @@ Hugging Face `generate` with static batching and against vLLM (D-006). Ideas com
 papers (attributed in `decisions.md`); no code is copied.
 
 The original project plan (a `PROJECT_PLAN*.md`, gitignored) is not in the repository and was not
-recovered after a laptop reset. `README.md` still says "Week 1 of 6", which is stale. The
-reconstruction below is from `decisions.md` and the commit history; D-011 says one extension
+recovered after a laptop reset. The reconstruction below is from `decisions.md` and the commit history; D-011 says one extension
 (a serving simulator, or a speculative-decoding study) is chosen after the router gate.
 
 ## 2. Component status
@@ -165,8 +165,10 @@ session.
    downloaded by hand into `models/`, and an SSH deploy key (scoped to this repository, private key
    on the laptop only) behind the `origin` remote's host alias. If a push fails with "could not
    resolve hostname", the SSH config was lost again.
-9. `README.md`'s status line ("Week 1 of 6") is stale. (The change-log table at the end of
-   `decisions.md` now has its first row, the mock-fleet comparison.)
+9. The change-log table at the end of `decisions.md` has only one row (the mock-fleet comparison);
+   the A6000 baseline sweeps of D-015 are described in their decision entry, not in that table.
+   (An earlier version of this file said `README.md` still read "Week 1 of 6"; it does not, and its
+   status line is accurate.)
 10. **The router's default load cap (16 in flight per replica) disables prefix affinity** once
     replicas hold that many requests, which a loaded fleet does; see section 3. Choose it against
     the load, and always read the policies' `load_fallbacks` counter next to a hit rate.
@@ -183,12 +185,18 @@ session.
    against the load (try several, e.g. 16, 32, 64, off, at one load that is not overloaded); a
    longer horizon and a Linux machine; the calibrated mock (below) so TTFT means something; and a
    test of the untested explanation for precise trailing approximate (shorten `--poll-interval`).
-2. **Draft D-018** (rented GPU, superseding D-017's machine choice) with provider, instance type,
-   price and driver left to fill in. Rental was planned for **Monday 2026-11-23**; the user had no
-   provider or budget in mind. Prices checked on 2026-11-20 from the providers' own pages: RunPod
-   H100 PCIe $2.89/h, Lambda H100 PCIe $3.79/h; AWS sells H100 only in 8-GPU sizes. Candidates and
-   caveats are in `docs/gpu-runbook.md`. Requirements: one GPU, a driver that supports CUDA 13.2,
-   the self-test must pass, one GPU model for all three systems.
+2. ~~**Draft D-018**~~ **Drafted** in `docs/decisions.md` with status "draft": provider, instance,
+   price, driver, budget and dates are `TO FILL`. Rental is planned for **Monday 2026-11-23**; the
+   user has no provider or budget yet, so those are theirs to decide. Prices were recorded on
+   2026-11-20 from the providers' own pages by an earlier session and **were not re-checked since**:
+   RunPod H100 PCIe $2.89/h, Lambda H100 PCIe $3.79/h; AWS sells H100 only in 8-GPU sizes. The
+   candidates, requirements (one GPU, a driver that advertises CUDA 13.2 or newer, the self-test
+   passes, one GPU model for all three systems) and a rough budget (an estimate: about 5 to 7 hours,
+   $15 to $27 at those prices) are in D-018. **Decisions for the user before renting:** provider and
+   instance; a budget cap; and whether to run the Hugging Face baseline at batch 16, 32 and 64 on the
+   new GPU (the runbook runs only 32; D-015 found the best setting at the edge of its grid on the
+   A6000, and an 80 GB card lifts D-017's 16 GB limit), which adds about 24 runs. Until the
+   provider is chosen, D-018 stays a draft and `docs/gpu-runbook.md` has no provider-specific steps.
 3. **The GPU session itself**, following `docs/gpu-runbook.md`: set up, record both environments,
    smoke test, then the HF baseline, engine and vLLM sweeps with several seeds, then reports. Write
    the measured effects into D-003, D-004, D-005 and D-006 and add change-log rows.
@@ -202,7 +210,8 @@ session.
 
 ## 8. Index
 
-- `docs/decisions.md`: D-001 to D-017, each with decision, reasons, alternatives and measured effect.
+- `docs/decisions.md`: D-001 to D-018 (D-018, the rented GPU, is a draft), each with decision,
+  reasons, alternatives and measured effect.
 - `docs/gpu-runbook.md`: the rented-GPU procedure.
 - `results/`: write-once benchmark outputs (A6000 sweeps, greedy evaluations, the variation table,
   and `router-compare-mock-*` for the mock-fleet comparison, which is not GPU data).
