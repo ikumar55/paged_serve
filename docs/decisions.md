@@ -135,7 +135,27 @@ estimates are recorded here as if they were results.
   gated on free blocks, and preemption by recomputing the evicted sequence when the pool runs out.
 - **Why:** Recompute avoids a swap path and CPU memory pool, keeping the first version small.
 - **Alternatives:** Swapping KV blocks to CPU memory (more code, more failure modes).
-- **Measured effect:** not yet measured.
+- **Implementation (`engine/scheduler.py`, `engine/paged_cache.py`):** each step first makes room
+  for every running sequence's next token, preempting the newest running sequence by recompute
+  when the pool is short (it has produced the least, so recomputing it wastes the least); then
+  runs one batched decode over sequences of different lengths (block tables gathered into a
+  padded tensor with an attention mask); then admits waiting requests that fit and prefills them
+  one at a time. A step that preempted does not admit, to avoid evicting again at once. A request
+  that could never fit in the pool alone is refused when submitted, so the oldest running
+  sequence can always finish. Prefill is not chunked, so a long prompt delays the decode of the
+  others for that step.
+- **Measured effect:** correctness only; nothing about speed or memory has been measured.
+  Llama-3.2-1B-Instruct, fp32, on a CPU (local run, `tests/test_real_llama_scheduler.py`): 16
+  prompts (6 sentences and 10 random-token sequences from the shared 50) of 24 new tokens each,
+  compared with Hugging Face `generate` on the same CPU. With a pool large enough for the whole
+  batch (batch size 8, no preemption) all 16 outputs were identical to Hugging Face's, token for
+  token. With a pool of 14 blocks of 16 tokens, which cannot hold eight requests, the scheduler
+  preempted 9 times over 70 steps and all 16 outputs were still identical, with no blocks
+  leaked. On a tiny random-weight model the same checks pass with deliberately broken variants
+  failing (unmasked padding, a lost token history, a block leak). This is a small sample on one
+  CPU in fp32: bf16 (where D-010 notes exact ties break differently) and GPUs have not been run
+  through the scheduler, and the 200-prompt evaluation of `bench/greedy_eval.py` has not been
+  repeated through it.
 
 ### D-005 Prefix cache: block hash chain, refcounts, LRU eviction
 
