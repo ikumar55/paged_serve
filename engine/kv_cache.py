@@ -23,6 +23,15 @@ class KVCache(Protocol):
 
     def advance(self, num_tokens: int) -> None: ...
 
+    def attention_mask(self, new_tokens: int) -> Tensor | None:
+        """Boolean mask ``[batch, 1, new_tokens, cached_total]`` (True = may attend), or ``None``.
+
+        ``None`` means every row has the same length and the default causal rule applies. A
+        cache holding sequences of different lengths, padded to a common length, must return a
+        mask that hides the padding.
+        """
+        ...
+
 
 class ContiguousKVCache:
     """Per-layer K and V buffers of shape ``[batch, kv_heads, max_len, head_dim]``."""
@@ -58,3 +67,6 @@ class ContiguousKVCache:
 
     def advance(self, num_tokens: int) -> None:
         self.length += num_tokens
+
+    def attention_mask(self, new_tokens: int) -> Tensor | None:
+        return None

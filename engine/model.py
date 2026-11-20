@@ -89,14 +89,17 @@ class RMSNorm(nn.Module):
         return out
 
 
-def attend(q: Tensor, k: Tensor, v: Tensor, past: int) -> Tensor:
+def attend(q: Tensor, k: Tensor, v: Tensor, past: int, mask: Tensor | None = None) -> Tensor:
     """Causal attention of ``q`` over ``past`` cached tokens plus its own.
 
     ``q`` is ``[batch, heads, new, head_dim]``; ``k`` and ``v`` are
     ``[batch, kv_heads, past + new, head_dim]``. Each query attends to every cached token and to
-    the new tokens up to and including itself.
+    the new tokens up to and including itself. An explicit boolean ``mask`` (True = may attend)
+    replaces that rule; it is used when the rows of a batch have different lengths.
     """
     new = q.shape[2]
+    if mask is not None:
+        return F.scaled_dot_product_attention(q, k, v, attn_mask=mask, enable_gqa=True)
     if past == 0:
         return F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=True)
     if new == 1:
@@ -135,11 +138,13 @@ class Attention(nn.Module):
         q, k = apply_rope(q, k, cos, sin)
 
         past = 0
+        mask = None
         if cache is not None:
             past = cache.length
             k, v = cache.update(layer, k, v)
+            mask = cache.attention_mask(tokens)
 
-        out = attend(q, k, v, past)
+        out = attend(q, k, v, past, mask)
         merged = out.transpose(1, 2).reshape(batch, tokens, self.num_heads * self.head_dim)
         result: Tensor = self.o_proj(merged)
         return result
