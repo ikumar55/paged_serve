@@ -6,10 +6,22 @@ are checked against.
 
 from __future__ import annotations
 
+from typing import Protocol
+
 import torch
 from torch import Tensor
 
 from engine.config import LlamaConfig
+
+
+class KVCache(Protocol):
+    """What the forward pass needs from a cache, whatever its memory layout."""
+
+    length: int
+
+    def update(self, layer: int, k_new: Tensor, v_new: Tensor) -> tuple[Tensor, Tensor]: ...
+
+    def advance(self, num_tokens: int) -> None: ...
 
 
 class ContiguousKVCache:

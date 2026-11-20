@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from engine.config import LlamaConfig, RopeScaling
-from engine.kv_cache import ContiguousKVCache
+from engine.kv_cache import KVCache
 
 
 def rope_inv_freq(head_dim: int, theta: float, scaling: RopeScaling | None) -> Tensor:
@@ -124,7 +124,7 @@ class Attention(nn.Module):
         x: Tensor,
         cos: Tensor,
         sin: Tensor,
-        cache: ContiguousKVCache | None,
+        cache: KVCache | None,
         layer: int,
     ) -> Tensor:
         batch, tokens, _ = x.shape
@@ -173,7 +173,7 @@ class DecoderLayer(nn.Module):
         x: Tensor,
         cos: Tensor,
         sin: Tensor,
-        cache: ContiguousKVCache | None,
+        cache: KVCache | None,
         layer: int,
     ) -> Tensor:
         x = x + self.self_attn(self.input_layernorm(x), cos, sin, cache, layer)
@@ -222,7 +222,7 @@ class Llama(nn.Module):
         self,
         input_ids: Tensor,
         positions: Tensor | None = None,
-        cache: ContiguousKVCache | None = None,
+        cache: KVCache | None = None,
         last_only: bool = False,
     ) -> Tensor:
         """Return logits of shape ``[batch, tokens, vocab]`` (``tokens`` is 1 if ``last_only``).
