@@ -76,6 +76,24 @@ CI and deployment work need no GPU. Its timings are placeholders, not measuremen
 numbers from it as GPU results. `GET /cache` lists the content hashes of the blocks a replica
 holds.
 
+## Router
+
+A streaming proxy in front of several engine replicas, with four policies: `round-robin`,
+`least-outstanding`, `approx-prefix` (remembers where each prompt chunk went) and `precise-prefix`
+(scores replicas by the blocks they report holding in `GET /cache`). It speaks the same API, so the
+load generator can drive it:
+
+```bash
+python -m engine.server --backend mock --port 8001 &     # replicas; mock needs no GPU
+python -m engine.server --backend mock --port 8002 &
+python -m router.server --replica http://127.0.0.1:8001 --replica http://127.0.0.1:8002 \
+    --policy precise-prefix --port 9000
+curl 'http://127.0.0.1:9000/info?fleet=true'             # routing counters and fleet hit rate
+```
+
+Prefix policies need prompts that share prefixes; see `--shared-prefix-groups` in the load generator
+section.
+
 ## Baselines
 
 `bench.baselines.hf_server` serves a Hugging Face model with `generate` and static batching behind the same API, so the load generator can compare it with this engine and with vLLM:

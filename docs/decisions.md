@@ -207,7 +207,26 @@ estimates are recorded here as if they were results.
   each replica expose the block hashes it currently holds and scores replicas against that.
 - **Why:** Approximate routing can drift from what replicas really cache (for example after
   eviction). Comparing both modes measures that drift directly.
-- **Measured effect:** not yet measured.
+- **Implementation (`router/policies.py`, `router/app.py`, `router/server.py`):** the router is a
+  streaming proxy that relays a replica's response bytes unchanged, so the load generator drives it
+  like one engine. Differences from the text above: the API takes token ids, so a "chunk" is a run
+  of token ids (not characters) and is hashed with the engine's block hash chain, which is also what
+  makes the precise policy's scores comparable to a replica's real block hashes; the precise policy
+  polls each replica's `GET /cache` (default every 0.5 s), so what it knows is up to one poll old.
+  Both prefix policies fall back to the least-loaded replica when the preferred one has `load_cap`
+  requests in flight, and a block counts as a match only after the blocks before it. A replica that
+  cannot be reached before its response starts is marked down for a cooldown and the request goes
+  to another; a failure partway through a stream cannot be retried and reaches the client as a
+  broken stream. A client that disconnects closes the upstream connection, so the engine aborts
+  the request and frees its blocks. `GET /info?fleet=true` returns each replica's own `/info` and
+  the fleet's prefix-cache hit rate.
+- **Measured effect:** correctness only, against the mock backend of D-008 (so no number here says
+  anything about a GPU). On twelve prompts in three shared-prefix groups over two replicas, the
+  fleet's prefix-cache hit rate was 9 x 16 of 12 x 19 prompt tokens with the approximate policy,
+  where every group stays on one replica, against 6 x 16 with round robin, which computes each
+  group on both. That is the arithmetic of the example, checked by a test, not a benchmark of
+  routing quality. The comparison of the four policies under load, and of how far the approximate
+  policy drifts from the precise one, is not yet run.
 
 ### D-008 Mock backend for router, deployment and CI work
 
