@@ -2,7 +2,7 @@
 
 A small LLM inference engine, written from scratch in Python and PyTorch, with a paged KV cache, continuous batching and prefix caching, plus a prefix-cache-aware router for multiple replicas.
 
-**Status: early development (Week 1 of 6).** Nothing here has been benchmarked yet. Results will land in `results/` with the hardware, library versions, git commit and exact command recorded next to every number.
+**Status: early development.** The engine, server, prefix cache, router and mock backend are built and tested on CPU, but the engine has not been run on a GPU or benchmarked; the only measured numbers are for the Hugging Face baseline. [`docs/STATUS.md`](docs/STATUS.md) says what is built, how it was checked and what is next. Results land in `results/` with the hardware, library versions, git commit and exact command recorded next to every number.
 
 ## Layout
 
