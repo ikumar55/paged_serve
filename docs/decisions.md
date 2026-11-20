@@ -319,6 +319,16 @@ estimates are recorded here as if they were results.
     tokenizer) and requests set `ignore_eos`, so the output-length distribution is what was asked
     for rather than whatever the model decides. Lengths are lognormal with a median, a sigma and
     clipping bounds.
+  - **Optional shared prefixes.** With `--shared-prefix-groups` and `--shared-prefix-len`, every
+    prompt is one of a fixed set of random prefixes followed by a unique suffix, and the
+    `--prompt-*` options then describe the suffix. Which prefix a request gets is drawn with a
+    popularity proportional to `1 / (rank + 1) ** skew` (`--shared-prefix-skew`, 0 for uniform).
+    This exists because random-token prompts share nothing, so they cannot show what a prefix
+    cache or prefix-aware routing does. The shapes (how many prefixes, how long, how unequal) are
+    modelling choices, not measurements of real traffic. The two extra random streams leave the
+    four original ones untouched, and a test pins the output of the old workloads to hashes taken
+    before the change, so recorded results can still be regenerated from their stored
+    configuration.
   - **OpenAI-style streaming completions.** The same client drives this engine, vLLM and, later,
     the router. Token counts come from the server's `usage` when present; otherwise stream events
     are counted and the result is marked as such.

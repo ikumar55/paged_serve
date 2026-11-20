@@ -55,6 +55,22 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--min-token-id", type=int, default=1000, help="prompt token ids start at this value"
     )
+    run.add_argument(
+        "--shared-prefix-groups",
+        type=int,
+        default=0,
+        help="if > 0, every prompt starts with one of this many fixed prefixes (needs "
+        "--shared-prefix-len); the --prompt-* options then describe the unique suffix",
+    )
+    run.add_argument(
+        "--shared-prefix-len", type=int, default=0, help="tokens in each shared prefix"
+    )
+    run.add_argument(
+        "--shared-prefix-skew",
+        type=float,
+        default=0.0,
+        help="0: prefixes equally popular; 1: Zipf-like, a few much hotter than the rest",
+    )
     run.add_argument("--timeout", type=float, default=120.0, help="per-request deadline in seconds")
     run.add_argument("--no-ignore-eos", action="store_true", help="let the model stop at EOS")
     run.add_argument("--warmup", type=int, default=3, help="unmeasured sequential requests first")
@@ -123,6 +139,9 @@ def _workload_from_args(args: argparse.Namespace) -> WorkloadConfig:
         seed=args.seed,
         vocab_size=args.vocab_size,
         min_token_id=args.min_token_id,
+        shared_prefix_groups=args.shared_prefix_groups,
+        shared_prefix_len=args.shared_prefix_len,
+        shared_prefix_skew=args.shared_prefix_skew,
     )
 
 

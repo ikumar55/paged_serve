@@ -108,10 +108,24 @@ Prefix caching is on by default in this engine and in vLLM. For a comparison wit
 `--server-arg=--no-prefix-caching` to the engine sweep and `--server-arg=--no-enable-prefix-caching`
 to the vLLM sweep (the equals sign is required). State which was used.
 
-The load generator's prompts are random token ids, so they share almost no prefixes: expect a
-prefix-cache hit rate near zero in these runs (`/info` reports `prefix_hit_rate`). That is not a
-failure, and it means these sweeps say nothing about the benefit of prefix caching. Showing that
-needs a workload with shared prompt prefixes, which the load generator does not have yet.
+By default the load generator's prompts are random token ids, so they share almost no prefixes:
+expect a prefix-cache hit rate near zero in those runs (`/info` reports `prefix_hit_rate`). That is
+not a failure, and it means such sweeps say nothing about the benefit of prefix caching. To measure
+that, run the same sweeps with a shared-prefix workload, with the cache on and off, for the engine
+and for vLLM, for example eight long shared prompts with unequal popularity:
+
+```bash
+python -m bench.sweep --system engine --model models/Llama-3.2-1B-Instruct \
+    --out results/engine-<hw>-prefix --server-env results/env-engine.json \
+    --batch-sizes 32 --rates 2,4,8 \
+    --loadgen-arg=--shared-prefix-groups=8 --loadgen-arg=--shared-prefix-len=1024 \
+    --loadgen-arg=--shared-prefix-skew=1 --loadgen-arg=--prompt-median=64
+```
+
+With a shared prefix, `--prompt-*` describes only the unique suffix, so the total prompt is the
+prefix plus that. Keep prefix plus suffix plus output within the model's and vLLM's
+`--max-model-len`. The prefix choice is a modelling decision (how many distinct prefixes, how long,
+how unequal), so state it next to the result and do not call one setting representative.
 
 Each sweep records a manifest with the system, extra server arguments, GPU load before and after,
 and whether another user contended the GPU. On a dedicated instance nothing should be contended;

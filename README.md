@@ -48,6 +48,11 @@ python -m bench.loadgen plot results/my-engine-rate*.jsonl --out-dir results/plo
 
 Result files are never overwritten, and the server address is redacted from the recorded command.
 
+By default prompts are random token ids and share nothing. To exercise a prefix cache or a
+prefix-aware router, add `--shared-prefix-groups 8 --shared-prefix-len 512 --shared-prefix-skew 1`:
+each prompt then starts with one of eight fixed prefixes (the first ones more popular) followed by a
+unique suffix described by the `--prompt-*` options.
+
 ## Engine server
 
 The paged engine behind the same streaming API as the baselines, so the load generator drives either:

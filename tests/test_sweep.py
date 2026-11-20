@@ -287,3 +287,30 @@ def test_main_records_the_system_and_extra_server_args_in_the_manifest(
     assert [e["name"] for e in entries] == ["b8-w0-r2", "b8-w0-r4", "b32-w0-r2", "b32-w0-r4"]
     assert {e["system"] for e in entries} == {"engine"}
     assert all(e["server_args"] == ["--flag-x"] for e in entries)
+
+
+def test_loadgen_args_are_passed_to_every_run_and_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bench import sweep
+
+    args = sweep_args(
+        "--system", "engine",
+        "--loadgen-arg=--shared-prefix-groups=8", "--loadgen-arg=--shared-prefix-len=512",
+    )  # fmt: skip
+    command = sweep.loadgen_command(args, RunConfig(32, 0, 4), Path("r.jsonl"))
+    assert command[-2:] == ["--shared-prefix-groups=8", "--shared-prefix-len=512"]
+
+    class Backend(FakeBackend):
+        def __init__(self, args: Any) -> None:
+            super().__init__()
+
+    monkeypatch.setattr(sweep, "SubprocessBackend", Backend)
+    out = tmp_path / "shared"
+    code = sweep.main([
+        "--system", "engine", "--model", "m", "--out", str(out), "--server-env", "e.json",
+        "--batch-sizes", "8", "--rates", "2", "--loadgen-arg=--shared-prefix-groups=8",
+    ])  # fmt: skip
+    assert code == 0
+    entry = json.loads((out / "manifest.jsonl").read_text().splitlines()[0])
+    assert entry["loadgen_args"] == ["--shared-prefix-groups=8"]

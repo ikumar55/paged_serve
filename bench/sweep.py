@@ -218,7 +218,7 @@ def loadgen_command(args: argparse.Namespace, config: RunConfig, result_path: Pa
         command.append("--fetch-server-info")
     command += ["--server-env", str(args.server_env), "--seed", str(args.seed)]
     command += ["--out", str(result_path)]
-    return command
+    return [*command, *args.loadgen_arg]
 
 
 def validate_args(args: argparse.Namespace) -> list[str]:
@@ -348,6 +348,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
             "e.g. --server-arg=--no-enable-prefix-caching"
         ),
     )
+    parser.add_argument(
+        "--loadgen-arg",
+        action="append",
+        default=[],
+        help=(
+            "extra option for every load generator run, repeatable, with an equals sign: "
+            "--loadgen-arg=--shared-prefix-groups=8 --loadgen-arg=--shared-prefix-len=512"
+        ),
+    )
     parser.add_argument("--resume", action="store_true", help="skip runs whose result exists")
     args = parser.parse_args(argv)
     if args.windows_ms is None:
@@ -375,7 +384,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     with manifest.open("a" if args.resume else "x") as handle:
 
         def record(entry: dict[str, Any]) -> None:
-            entry = {**entry, "system": args.system, "server_args": args.server_arg}
+            entry = {
+                **entry,
+                "system": args.system,
+                "server_args": args.server_arg,
+                "loadgen_args": args.loadgen_arg,
+            }
             handle.write(json.dumps(entry, sort_keys=True) + "\n")
             handle.flush()
             flag = " CONTENDED" if entry["contended"] else ""
