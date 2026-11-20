@@ -221,3 +221,19 @@ def test_end_to_end_with_the_load_generator(tmp_path: Path) -> None:
     before = meta["server_info"]["before"]["stats"]
     after = meta["server_info"]["after"]["stats"]
     assert after["requests_finished"] - before["requests_finished"] == 17  # 16 plus the warm-up
+
+
+def test_info_reports_prefix_cache_hits_for_a_shared_prompt_prefix() -> None:
+    app, _ = make_app()
+    shared = prompt_of(16, 6)  # four full blocks of four tokens
+    with UvicornServer(app) as url, httpx.Client(base_url=url) as client:
+        first = client.post("/v1/completions", json={"prompt": [*shared, 5, 6], "max_tokens": 4})
+        second = client.post("/v1/completions", json={"prompt": [*shared, 7, 8], "max_tokens": 4})
+        stats = client.get("/info").json()["stats"]
+    assert first.json()["choices"][0]["token_ids"] == reference([*shared, 5, 6], 4)
+    assert second.json()["choices"][0]["token_ids"] == reference([*shared, 7, 8], 4)
+    assert stats["prefix_caching"] == 1 and stats["prefix_hit_tokens"] == 16
+    assert stats["prefix_prompt_tokens"] == 36 and stats["prefix_hit_rate"] == pytest.approx(
+        16 / 36
+    )
+    assert stats["blocks_cached"] >= 4 and stats["blocks_used"] == 0

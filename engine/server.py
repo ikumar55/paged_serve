@@ -344,6 +344,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-batch-size", type=int, default=32)
     parser.add_argument("--block-size", type=int, default=16)
     parser.add_argument(
+        "--no-prefix-caching", action="store_true", help="turn the prefix cache off"
+    )
+    parser.add_argument(
         "--kv-cache-gb", type=float, default=4.0, help="memory for the paged KV cache"
     )
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default: local only)")
@@ -357,7 +360,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if num_blocks < 1:
         raise SystemExit("--kv-cache-gb is too small for even one block")
     pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
-    scheduler = Scheduler(model, pool, max_batch_size=args.max_batch_size)
+    scheduler = Scheduler(
+        model,
+        pool,
+        max_batch_size=args.max_batch_size,
+        enable_prefix_caching=not args.no_prefix_caching,
+    )
     device_name = torch.cuda.get_device_name(model.device) if model.device.type == "cuda" else "cpu"
     app = create_app(
         scheduler,

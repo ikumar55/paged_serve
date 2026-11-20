@@ -25,6 +25,7 @@ import torch
 
 from engine.model import Llama
 from engine.paged_cache import KVPool, PagedBatchCache, PagedSequenceCache
+from engine.prefix_cache import match_prefix
 
 
 @dataclass
@@ -60,18 +61,27 @@ class StepResult:
 
 
 class Scheduler:
-    def __init__(self, model: Llama, pool: KVPool, max_batch_size: int = 8) -> None:
+    def __init__(
+        self,
+        model: Llama,
+        pool: KVPool,
+        max_batch_size: int = 8,
+        enable_prefix_caching: bool = True,
+    ) -> None:
         if max_batch_size <= 0:
             raise ValueError("max_batch_size must be positive")
         self.model = model
         self.pool = pool
         self.max_batch_size = max_batch_size
+        self.prefix_caching = enable_prefix_caching
         self.waiting: deque[Request] = deque()
         self.running: list[Request] = []  # in admission order, oldest first
         self._caches: dict[int, PagedSequenceCache] = {}
         self._known: set[int] = set()
         self.total_preemptions = 0
         self.aborted = 0
+        self.prefix_hit_tokens = 0  # prompt tokens served from cached blocks, not recomputed
+        self.prefix_prompt_tokens = 0  # prompt tokens of every admission (hits plus computed)
         self.steps = 0
         self.decode_steps = 0
         self.decoded_sequences = 0
@@ -160,6 +170,14 @@ class Scheduler:
             "waiting": len(self.waiting),
             "preemptions": self.total_preemptions,
             "aborted": self.aborted,
+            "prefix_caching": int(self.prefix_caching),
+            "prefix_hit_tokens": self.prefix_hit_tokens,
+            "prefix_prompt_tokens": self.prefix_prompt_tokens,
+            "prefix_hit_rate": self.prefix_hit_tokens / self.prefix_prompt_tokens
+            if self.prefix_prompt_tokens
+            else 0.0,
+            "blocks_cached": allocator.num_cached,
+            "block_evictions": allocator.evictions,
             "decode_steps": self.decode_steps,
             "mean_decode_batch": self.decoded_sequences / self.decode_steps
             if self.decode_steps
@@ -225,13 +243,21 @@ class Scheduler:
         while self.waiting and len(self.running) < self.max_batch_size:
             request = self.waiting[0]
             tokens = request.tokens()
-            # Room for the prompt (plus anything recomputed) and the first new token's slot.
-            if not allocator.can_allocate(allocator.blocks_for(len(tokens) + 1)):
+            cache = PagedSequenceCache(self.pool)
+            if self.prefix_caching:
+                # Leave at least one token to compute: the model needs a pass to produce the next.
+                blocks, hashes = match_prefix(allocator, tokens, max_tokens=len(tokens) - 1)
+                cache.adopt(blocks, hashes)
+            # Room for the rest of the prompt (anything recomputed included) and the slot of the
+            # first new token. Blocks taken from the cache are already counted as held.
+            if not allocator.can_allocate(cache.blocks_missing(len(tokens) + 1)):
+                cache.release()
                 return
             self.waiting.popleft()
-            cache = PagedSequenceCache(self.pool)
             self._caches[request.id] = cache
-            ids = torch.tensor([tokens], dtype=torch.long, device=self.model.device)
+            self.prefix_hit_tokens += cache.length
+            self.prefix_prompt_tokens += len(tokens)
+            ids = torch.tensor([tokens[cache.length :]], dtype=torch.long, device=self.model.device)
             logits = self.model(ids, cache=cache, last_only=True)
             self.running.append(request)
             result.prefilled.append(request.id)
@@ -240,6 +266,8 @@ class Scheduler:
     def _accept(self, request: Request, token: int, result: StepResult) -> None:
         request.generated.append(token)
         result.new_tokens.setdefault(request.id, []).append(token)
+        if self.prefix_caching:  # before a finished request lets go of its blocks
+            self._caches[request.id].register_full_blocks(request.tokens())
         if token in request.eos_ids or request.remaining == 0:
             self.running.remove(request)
             self._caches.pop(request.id).release()

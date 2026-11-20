@@ -166,7 +166,29 @@ estimates are recorded here as if they were results.
   equal prefixes. Refcounts make sharing safe across running sequences.
 - **Alternatives:** A radix tree over tokens (more precise sharing of partial prefixes, more
   machinery).
-- **Measured effect:** not yet measured.
+- **Implementation (`engine/prefix_cache.py`, `engine/block_allocator.py`):** a block's hash is a
+  128-bit BLAKE2 digest of its parent's hash and its tokens, so a collision that would silently
+  reuse the wrong keys and values is not a practical concern. A full block is registered when it
+  fills, during prefill or decode. When its last holder releases it, it stays on an evictable list
+  (least recently released first) with its keys and values intact; a later prompt that hashes to
+  it takes it back, and when the free list runs out the oldest evictable block is reused.
+  A prompt may reuse at most all but one of its tokens, whole blocks only, because the model needs a
+  forward pass over at least the last token to produce the next one. Preemption by recompute (D-004)
+  benefits too, since the evicted sequence's own blocks are usually still cached when it comes back.
+  Eviction is by release order, not by last use, so a block that is hit again moves to the end
+  only when its holder releases it. Off with `--no-prefix-caching` on the server, so it can be
+  switched off for a comparison with a system that has it off.
+- **Measured effect:** correctness and bookkeeping only; no speed or memory has been measured. On
+  a tiny random-weight model on a CPU, outputs with the cache on equal single-request greedy
+  decoding for shared prefixes (sequential and in one batch), a fully cached prompt, and under a
+  pool small enough to force both eviction and preemption, with no blocks leaked. A
+  deliberately broken variant fails the tests in each of six ways tried, including a hash that
+  ignores its parent: without it, the prompt `[A, A]` reuses the block cached for the first `A` of
+  `[A, B]` at the wrong position. Tokens reused from cache come from keys and values computed
+  earlier, possibly in a different batch shape, so equality with an uncached run is expected to
+  hold to rounding and not bit for bit; this was exact on the tiny fp32 model and has not been
+  checked in bf16 or on the real weights. The hit rate on real traffic depends on the workload and
+  is unmeasured.
 
 ### D-006 Baselines: Hugging Face static batching and pinned vLLM
 

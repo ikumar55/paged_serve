@@ -21,6 +21,7 @@ from torch import Tensor
 
 from engine.block_allocator import BlockAllocator, OutOfBlocksError
 from engine.config import LlamaConfig
+from engine.prefix_cache import hash_block
 
 
 class KVPool:
@@ -55,7 +56,38 @@ class PagedSequenceCache:
     def __init__(self, pool: KVPool) -> None:
         self.pool = pool
         self.blocks: list[int] = []
+        self.hashes: list[int] = []  # content hash of each leading block already registered
         self.length = 0  # tokens already cached; advanced once per forward pass
+
+    def adopt(self, blocks: list[int], hashes: list[int]) -> None:
+        """Start from cached full blocks that already hold this sequence's first tokens.
+
+        The caller has taken a holder on each block (see ``match_prefix``); this cache now owns
+        those holders and gives them back in :meth:`release`.
+        """
+        if self.blocks or self.length:
+            raise ValueError("only an empty cache can adopt blocks")
+        if len(blocks) != len(hashes):
+            raise ValueError("one hash per adopted block")
+        self.blocks = list(blocks)
+        self.hashes = list(hashes)
+        self.length = len(blocks) * self.pool.block_size
+
+    def register_full_blocks(self, tokens: list[int]) -> None:
+        """Index every block that has become full so later prompts can reuse it.
+
+        ``tokens`` are this sequence's tokens from the start; only those already cached
+        (``self.length`` of them) are used. Safe to call after every step: it does work only when
+        a block has just filled.
+        """
+        size = self.pool.block_size
+        full = min(self.length // size, len(self.blocks))
+        while len(self.hashes) < full:
+            index = len(self.hashes)
+            parent = self.hashes[-1] if self.hashes else None
+            content_hash = hash_block(parent, tokens[index * size : (index + 1) * size])
+            self.pool.allocator.register(self.blocks[index], content_hash)
+            self.hashes.append(content_hash)
 
     def update(self, layer: int, k_new: Tensor, v_new: Tensor) -> tuple[Tensor, Tensor]:
         """Write new keys and values after the cached ones and return all of them.
@@ -94,6 +126,7 @@ class PagedSequenceCache:
         for block in self.blocks:
             self.pool.allocator.release(block)
         self.blocks = []
+        self.hashes = []
         self.length = 0
 
     def _ensure_capacity(self, num_tokens: int) -> None:

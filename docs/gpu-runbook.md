@@ -104,8 +104,14 @@ for seed in 0 1 2 3; do
 done
 ```
 
-For a fair "matching features" vLLM run, add `--server-arg=--no-enable-prefix-caching` (the equals
-sign is required) if the engine is being measured without its prefix cache. State which was used.
+Prefix caching is on by default in this engine and in vLLM. For a comparison with it off, pass
+`--server-arg=--no-prefix-caching` to the engine sweep and `--server-arg=--no-enable-prefix-caching`
+to the vLLM sweep (the equals sign is required). State which was used.
+
+The load generator's prompts are random token ids, so they share almost no prefixes: expect a
+prefix-cache hit rate near zero in these runs (`/info` reports `prefix_hit_rate`). That is not a
+failure, and it means these sweeps say nothing about the benefit of prefix caching. Showing that
+needs a workload with shared prompt prefixes, which the load generator does not have yet.
 
 Each sweep records a manifest with the system, extra server arguments, GPU load before and after,
 and whether another user contended the GPU. On a dedicated instance nothing should be contended;

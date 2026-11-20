@@ -1,15 +1,22 @@
-"""Fixed-size block allocator with reference counts.
+"""Fixed-size block allocator with reference counts and an optional content index.
 
 The KV cache memory is carved into ``num_blocks`` blocks of ``block_size`` token slots. Sequences
 hold lists of block ids instead of one contiguous buffer, so memory is claimed one block at a
 time and returned the moment a sequence ends. Reference counts let several sequences share a
-block (needed later for prefix caching, D-005); a block goes back to the free list only when its
-last holder releases it.
+block; a block is released when its last holder lets go.
+
+Prefix caching (D-005) adds a content index. A *full* block can be registered under a hash that
+identifies its tokens and everything before them (see :mod:`engine.prefix_cache`). When such a
+block's last holder releases it, it is not returned to the free list but kept, still holding its
+keys and values, on an *evictable* list in least-recently-released order. A later request whose
+prompt hashes to it can take it back (:meth:`lookup`) instead of recomputing it. When the free list
+runs dry, :meth:`allocate` evicts the oldest evictable block. Blocks that are free or evictable
+both count as available.
 """
 
 from __future__ import annotations
 
-from collections import deque
+from collections import OrderedDict, deque
 
 
 class OutOfBlocksError(RuntimeError):
@@ -22,18 +29,27 @@ class BlockAllocator:
             raise ValueError("num_blocks and block_size must be positive")
         self.num_blocks = num_blocks
         self.block_size = block_size
-        # FIFO free list: a released block is reused last, which keeps recently freed contents
-        # around longest. That matters once freed blocks can still hold a cacheable prefix.
         self._free: deque[int] = deque(range(num_blocks))
         self._refs = [0] * num_blocks
+        self._hash_of: dict[int, int] = {}  # block -> content hash, for registered blocks
+        self._by_hash: dict[int, int] = {}  # content hash -> block
+        self._evictable: OrderedDict[int, None] = OrderedDict()  # unreferenced, still cached
+        self.evictions = 0
 
     @property
     def num_free(self) -> int:
-        return len(self._free)
+        """Blocks that can be allocated now: free ones plus cached ones nobody holds."""
+        return len(self._free) + len(self._evictable)
 
     @property
     def num_used(self) -> int:
-        return self.num_blocks - len(self._free)
+        """Blocks held by at least one sequence."""
+        return self.num_blocks - self.num_free
+
+    @property
+    def num_cached(self) -> int:
+        """Blocks registered in the content index, held or not."""
+        return len(self._by_hash)
 
     def blocks_for(self, num_tokens: int) -> int:
         """Number of blocks needed to hold ``num_tokens`` tokens."""
@@ -42,13 +58,18 @@ class BlockAllocator:
         return -(-num_tokens // self.block_size)
 
     def can_allocate(self, count: int) -> bool:
-        return count <= len(self._free)
+        return count <= self.num_free
 
     def allocate(self) -> int:
-        """Take one free block (reference count 1)."""
-        if not self._free:
+        """Take one block (reference count 1): a free one, else evict the oldest cached one."""
+        if self._free:
+            block = self._free.popleft()
+        elif self._evictable:
+            block, _ = self._evictable.popitem(last=False)
+            del self._by_hash[self._hash_of.pop(block)]
+            self.evictions += 1
+        else:
             raise OutOfBlocksError(f"all {self.num_blocks} blocks are in use")
-        block = self._free.popleft()
         self._refs[block] = 1
         return block
 
@@ -58,15 +79,44 @@ class BlockAllocator:
         self._refs[block] += 1
 
     def release(self, block: int) -> None:
-        """Drop one holder; the block becomes free when the last holder lets go."""
+        """Drop one holder. The last one frees the block, or keeps it cached if it is registered."""
         self._check_in_use(block)
         self._refs[block] -= 1
-        if self._refs[block] == 0:
+        if self._refs[block] > 0:
+            return
+        if block in self._hash_of:
+            self._evictable[block] = None  # most recently released goes last, so it is evicted last
+        else:
             self._free.append(block)
 
     def ref_count(self, block: int) -> int:
         self._check_range(block)
         return self._refs[block]
+
+    # -- content index (prefix caching) ----------------------------------------------------
+
+    def register(self, block: int, content_hash: int) -> bool:
+        """Record that ``block`` (full and held) contains the content ``content_hash``.
+
+        Returns False and changes nothing if the hash is already indexed to another block (the
+        same prefix was computed twice) or the block is already registered.
+        """
+        self._check_in_use(block)
+        if content_hash in self._by_hash or block in self._hash_of:
+            return False
+        self._hash_of[block] = content_hash
+        self._by_hash[content_hash] = block
+        return True
+
+    def lookup(self, content_hash: int) -> int | None:
+        """Take a holder on the block with this content, if one is cached; None otherwise."""
+        block = self._by_hash.get(content_hash)
+        if block is None:
+            return None
+        if self._refs[block] == 0:
+            del self._evictable[block]  # revived: no longer a candidate for eviction
+        self._refs[block] += 1
+        return block
 
     def _check_range(self, block: int) -> None:
         if not 0 <= block < self.num_blocks:
