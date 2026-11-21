@@ -5,8 +5,8 @@ the work up. **Update this file at the end of every step.** It complements
 [`decisions.md`](decisions.md), which holds each design decision with its measured effect; where
 the two disagree, `decisions.md` is the record and this file is the map.
 
-Last updated: 2026-11-20, after the router policy comparison on a mock fleet and the D-018 draft
-(steps 1 and 2 of section 7).
+Last updated: 2026-11-20, after the router policy comparison on a mock fleet (with the load cap
+and poll interval follow-up) and the D-018 draft (steps 1 and 2 of section 7).
 
 ## 1. The project
 
@@ -34,7 +34,7 @@ GPU through the scheduler, the server or the router.
 | Engine server | `engine/server.py` | Over real sockets on a tiny model: output equals reference, streaming, EOS, disconnects abort and free blocks, the load generator drives it | GPU; `--kv-cache-gb` sizing; throughput |
 | Mock backend (D-008) | `engine/mock.py`, `server.py --backend mock` | Output is a pure function of the last token and position, so batching/preemption/routing cannot change it; pool accounting matches a real model | **Timing is uncalibrated placeholders**; only the decode step is loosely based on D-015 |
 | Router (D-007) | `router/policies.py`, `app.py`, `server.py` | Mock replicas and router over real sockets: pass-through, the four policies, load cap, failover, 503, disconnect propagation, load generator through the router; seven of eight broken variants fail (the eighth is an equivalent mutant); `--max-entries` (the approximate policy's memory limit) reaches the policy from the command line | Real engine replicas, GPU, mid-stream replica death. The mock-fleet comparison below is not GPU evidence |
-| Router policy comparison (D-007) | `bench/router_compare.py` | Replicas and router as real subprocesses over real sockets, mock backend; 29 deliberately broken variants of the script, the router flag and the policy factory each make a test fail. Writing them found one real flaw (a refused write could leave half a result behind, now fixed) and a test that the digest of the workload was recorded from what was meant rather than what was sent (now from what is sent); results in section 3 | Anything about a GPU; Linux; more than 3 seeds and one workload shape; the load cap's effect beyond the two settings tried |
+| Router policy comparison (D-007) | `bench/router_compare.py` | Replicas and router as real subprocesses over real sockets, mock backend; 37 deliberately broken variants of the script, the router flag and the policy factory (including the per-variant load cap) each make a test fail. Writing them found one real flaw (a refused write could leave half a result behind, now fixed) and a test that the digest of the workload was recorded from what was meant rather than what was sent (now from what is sent); results in section 3 | Anything about a GPU; Linux; more than 3 seeds and one workload shape; the load cap's effect beyond the two settings tried |
 | Load generator and workloads (D-014) | `bench/loadgen.py`, `workload.py`, `client.py`, `runner.py`, `metrics.py`, `results_io.py`, `plots.py` | Calibrated against a fake server; pinned hashes prove old workloads still regenerate exactly; optional shared-prefix mode | - |
 | HF static-batching baseline (D-015) | `bench/baselines/`, `bench/sweep*.py` | Swept and recorded on an RTX A6000 (the only real benchmark numbers, section 3) | Not yet re-run on the chosen benchmark machine |
 | Sweep tooling for engine and vLLM | `bench/sweep.py` | Command construction, validation and manifests tested with fake servers; the hf-static commands are pinned to what the recorded sweeps used | The vLLM server flags are from memory and unverified for vLLM 0.34.0; nothing has launched a real engine or vLLM sweep |
@@ -42,8 +42,8 @@ GPU through the scheduler, the server or the router.
 | Rental-GPU setup | `deploy/setup_gpu_box.sh`, `docs/gpu-runbook.md` | Shell syntax only | **Never run on a real machine** |
 | Dockerfiles, Kubernetes manifests | - | - | Not written; `deploy/` has only the setup script |
 
-Test suite (CPU): `320 passed, 1 failed, 10 deselected` on Windows at this step (it was `299 passed,
-2 failed` before it). The 10 deselected are GPU and real-weights tests. The failures are the load
+Test suite (CPU): `322 passed, 1 failed, 10 deselected` on Windows at this step (it was `299 passed,
+2 failed` before the router comparison). The 10 deselected are GPU and real-weights tests. The failures are the load
 generator's two timing tests, which fail intermittently on Windows only (one or both on any given
 run; see section 6); they passed on the Linux machines in the log. The new tests add about 40
 seconds on Windows, mostly from starting servers.
@@ -70,28 +70,34 @@ it are retracted. Every GPU measurement must be preceded by the self-test.
 
 ### Mock-fleet router comparison (not GPU, timing uncalibrated)
 
-Three runs of `bench/router_compare.py` (4 mock replicas and the router as processes on this Windows
-laptop, 3 seeds, 600 requests each; details, counters and caveats in D-007, files
+Five result files from `bench/router_compare.py` (4 mock replicas and the router as processes on
+this Windows laptop, 3 seeds each, 600 or 1200 requests per run; details, counters and caveats in
+D-007, files
 `results/router-compare-mock-*.json` and `.md`, every one labelled mock/uncalibrated). Do not quote
 these as performance. What they do show, about routing and plumbing:
 
-- **Default load cap (16) at a load near saturation turns prefix routing off.** In the two runs
-  with it, the prefix policies sent about 85 to 90% of requests elsewhere because the holder was
-  over the cap. With an ample cache all four policies then had identical hit tokens (A), and with a
-  tight cache the hit rates were within run spread except a small edge for the approximate policy
-  (B). Those two runs were also overloaded.
+- **The load cap decides whether prefix routing happens at all.** In the two overloaded runs (A, B)
+  the default cap of 16 sent 85 to 90% of the prefix policies' requests elsewhere, so all four
+  policies looked alike. In a later sweep at a load that was *not* overloaded (29 of 30 req/s, no
+  failures, 1200 requests) the cap mattered sharply between 8 and 16: hit rate 44% at cap 4, 52 to
+  55% at 8, then 70 to 72% at 16, 32 and off, identical from 16 up. So 16 is fine at that load and
+  too low when replicas hold more requests in flight than that.
 - **With the cap off and a lighter load (C), prefix-aware routing clearly raised the fleet hit
   rate:** approximate 70.9%, precise 67.8%, against round-robin 42.2% and least-outstanding 43.7%
   (three seeds, ranges do not overlap). TTFT p50 fell (78 to 64 ms in a placeholder-timed mock), p99
   did not, and work concentrated on the replicas holding the hot prefixes (computed-token imbalance
   1.3 against 1.06).
 - **The approximate policy's memory matters a lot:** limited to 1024 chunks 64.2%, to 256 chunks
-  46.2% (about least-outstanding). It did **not** lag the precise policy; it was higher by about 3
-  points, probably because the precise policy only learns of a prefix at its next 0.5 s poll (an
-  untested explanation).
+  46.2% (about least-outstanding). It did **not** lag the precise policy; it was higher by about 2
+  to 3 points. Polling the precise policy 10 times faster narrowed that to 0.4 points, but the
+  ranges overlap, so the poll-staleness explanation is **not established** (its no-match count
+  barely moved). Other explanations are untested (D-007).
+- **No cap value gave both a high hit rate and an even spread:** cap 8 was balanced (imbalance
+  1.07) with 52% hits, cap 16 and up gave about 71% with imbalance 1.2 to 1.4.
 
-The load cap therefore has to be chosen against the load (open item), and the comparison has to be
-repeated on a calibrated mock and on real replicas before any of this is called a router result.
+The load cap therefore has to be chosen against the number of requests in flight (open item), and
+the comparison has to be repeated on a calibrated mock and on real replicas before any of this is
+called a router result.
 
 ## 4. How the work is done (conventions to keep)
 
@@ -135,6 +141,8 @@ python -m bench.sweep --system {hf-static,engine,vllm} ...  # see the module doc
 python -m bench.router_compare --out results/router-compare-mock-x.json --label "..." \
     --replicas 4 --rate 30 --num-requests 600 --seeds 0,1,2 --mock-time-scale 2 \
     --shared-prefix-groups 64 --kv-cache-gb 0.25 --load-cap 1000 --approx-max-entries 256,1024
+# --load-caps 4,8,16,32,1000 runs each prefix policy once per cap (a per-variant setting);
+# --poll-interval sets how often the precise policy reads each replica's /cache
 ```
 
 `README.md` has the user-facing version; `docs/gpu-runbook.md` is the ordered plan for a rented-GPU
@@ -169,9 +177,11 @@ session.
    the A6000 baseline sweeps of D-015 are described in their decision entry, not in that table.
    (An earlier version of this file said `README.md` still read "Week 1 of 6"; it does not, and its
    status line is accurate.)
-10. **The router's default load cap (16 in flight per replica) disables prefix affinity** once
-    replicas hold that many requests, which a loaded fleet does; see section 3. Choose it against
-    the load, and always read the policies' `load_fallbacks` counter next to a hit rate.
+10. **The router's load cap (default 16 in flight per replica) disables prefix affinity once
+    replicas hold that many requests**, which an overloaded or heavily loaded fleet does; see
+    section 3. Choose it against the load, and always read the policies' `load_fallbacks` counter
+    next to a hit rate: a hit rate that is the same for every policy usually means the cap, not
+    the policies, decided.
 11. **A short pilot hides saturation.** The load for the mock-fleet runs was first judged from
     200-request pilots, which looked fine; at 600 requests two of the three runs were overloaded.
     Judge a load from runs long enough to show the queue growing (achieved against offered rate).
@@ -180,11 +190,12 @@ session.
 
 ## 7. Suggested next steps, in order
 
-1. ~~**Router policy comparison on a mock fleet.**~~ **Done** (`bench/router_compare.py`, three
-   runs, D-007). Follow-ups that would make it count as the CPU-only router gate: a load cap chosen
-   against the load (try several, e.g. 16, 32, 64, off, at one load that is not overloaded); a
-   longer horizon and a Linux machine; the calibrated mock (below) so TTFT means something; and a
-   test of the untested explanation for precise trailing approximate (shorten `--poll-interval`).
+1. ~~**Router policy comparison on a mock fleet.**~~ **Done** (`bench/router_compare.py`, five
+   result files, D-007), including the load cap sweep and the poll interval test. Still needed
+   before it counts as the CPU-only router gate: a Linux machine and more seeds (the Windows laptop
+   shares one CPU between everything); the calibrated mock (below) so TTFT means something; the
+   cap against another load or replica count; and a test of why the precise policy makes more
+   no-match decisions than the approximate one (idea: log whether the prefix had been evicted).
 2. ~~**Draft D-018**~~ **Drafted** in `docs/decisions.md` with status "draft": provider, instance,
    price, driver, budget and dates are `TO FILL`. Rental is planned for **Monday 2026-11-23**; the
    user has no provider or budget yet, so those are theirs to decide. Prices were recorded on
@@ -199,7 +210,10 @@ session.
    provider is chosen, D-018 stays a draft and `docs/gpu-runbook.md` has no provider-specific steps.
 3. **The GPU session itself**, following `docs/gpu-runbook.md`: set up, record both environments,
    smoke test, then the HF baseline, engine and vLLM sweeps with several seeds, then reports. Write
-   the measured effects into D-003, D-004, D-005 and D-006 and add change-log rows.
+   the measured effects into D-003, D-004, D-005 and D-006 and add change-log rows. Plan as of
+   2026-11-20: do the first hour (the smoke test) before the big sweeps, probably on Monday, on
+   either a rented GPU or an Oxmiq Capsule machine; a Capsule machine is a candidate in D-018 and
+   must meet the same requirements (dedicated, driver, self-test, disk).
 4. **Speed work only after profiling:** CUDA graphs and removing Python overhead first (D-003), a
    fused paged-attention kernel only as a stretch, chunked prefill (Sarathi-Serve) if long prompts
    hurt decode latency.

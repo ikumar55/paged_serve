@@ -51,6 +51,7 @@ from engine.mock import TimingModel
 from router.policies import POLICIES
 
 SCHEMA_VERSION = 1
+PREFIX_POLICIES = ("approx-prefix", "precise-prefix")  # the policies with a load cap
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 BANNER = (
@@ -62,10 +63,16 @@ BANNER = (
 
 @dataclass(frozen=True)
 class Variant:
-    """A router configuration. ``max_entries`` only applies to the approximate policy."""
+    """A router configuration.
+
+    ``max_entries`` (the memory limit) only applies to the approximate policy. ``load_cap``
+    overrides the fleet's cap for one variant and only applies to the two prefix policies, the
+    only ones that have a cap; without it the fleet's setting is used.
+    """
 
     policy: str
     max_entries: int | None = None
+    load_cap: int | None = None
 
     def __post_init__(self) -> None:
         if self.policy not in POLICIES:
@@ -75,12 +82,26 @@ class Variant:
                 raise ValueError("a memory limit (max_entries) only applies to approx-prefix")
             if self.max_entries <= 0:
                 raise ValueError("max_entries must be positive")
+        if self.load_cap is not None:
+            if self.policy not in PREFIX_POLICIES:
+                raise ValueError("a load cap only applies to the prefix policies")
+            if self.load_cap <= 0:
+                raise ValueError("load_cap must be positive")
 
     @property
     def label(self) -> str:
-        if self.max_entries is None:
-            return self.policy
-        return f"{self.policy}[max-entries={self.max_entries}]"
+        settings = []
+        if self.max_entries is not None:
+            settings.append(f"max-entries={self.max_entries}")
+        if self.load_cap is not None:
+            settings.append(f"cap={self.load_cap}")
+        return f"{self.policy}[{','.join(settings)}]" if settings else self.policy
+
+    def effective_load_cap(self, fleet: FleetConfig) -> int | None:
+        """The cap this variant's router runs with, or None if its policy has no cap."""
+        if self.policy not in PREFIX_POLICIES:
+            return None
+        return self.load_cap if self.load_cap is not None else fleet.load_cap
 
 
 @dataclass(frozen=True)
@@ -146,7 +167,7 @@ def router_command(
         "--port", str(port),
         "--policy", variant.policy,
         "--chunk-tokens", str(fleet.block_size),  # chunks match the replicas' blocks
-        "--load-cap", str(fleet.load_cap),
+        "--load-cap", str(variant.load_cap if variant.load_cap is not None else fleet.load_cap),
         "--poll-interval", f"{fleet.poll_interval_s:g}",
     ]  # fmt: skip
     for url in replica_urls:
@@ -324,6 +345,7 @@ def run_variant(
         "variant": variant.label,
         "policy": variant.policy,
         "max_entries": variant.max_entries,
+        "load_cap": variant.effective_load_cap(fleet),  # None for policies without a cap
         "workload_digest": workload_digest(specs),  # of what is sent here, not of what was meant
     }
     try:
@@ -347,8 +369,21 @@ def run_variant(
 # -- many runs, one file -------------------------------------------------------------------------
 
 
-def build_variants(policies: Sequence[str], approx_max_entries: Sequence[int]) -> list[Variant]:
-    variants = [Variant(policy) for policy in policies]
+def build_variants(
+    policies: Sequence[str],
+    approx_max_entries: Sequence[int],
+    load_caps: Sequence[int] = (),
+) -> list[Variant]:
+    """One variant per policy, plus approximate variants with a memory limit. With ``load_caps``
+    each prefix policy gets one variant per cap instead of a single one at the fleet's cap."""
+    variants: list[Variant] = []
+    for policy in policies:
+        if load_caps and policy in PREFIX_POLICIES:
+            variants += [Variant(policy, load_cap=cap) for cap in load_caps]
+        else:
+            variants.append(Variant(policy))
+    if load_caps and not any(p in PREFIX_POLICIES for p in policies):
+        raise ValueError("--load-caps needs a prefix policy among the policies")
     if approx_max_entries and "approx-prefix" not in policies:
         raise ValueError("--approx-max-entries needs approx-prefix among the policies")
     variants += [Variant("approx-prefix", limit) for limit in approx_max_entries]
@@ -442,7 +477,7 @@ def format_table(doc: dict[str, Any]) -> str:
             continue
         failed = sum(r["summary"]["requests"] - r["summary"]["ok"] for r in ok)
         fallbacks: int | str = "n/a"  # only the prefix-aware policies have a load cap to hit
-        if ok[0]["policy"] in ("approx-prefix", "precise-prefix"):
+        if ok[0]["policy"] in PREFIX_POLICIES:
             fallbacks = sum(r["summary"]["policy_stats"]["load_fallbacks"] for r in ok)
         cells = " | ".join(_cell(ok, column) for column in COLUMNS)
         lines.append(f"| {label} | {runs_cell} | {cells} | {failed} | {fallbacks} |")
@@ -560,6 +595,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default="",
         help="extra approx-prefix variants with this memory limit (chunks); comma separated",
     )
+    parser.add_argument(
+        "--load-caps",
+        default="",
+        help="comma separated; each prefix policy then runs once per cap instead of once at "
+        "--load-cap (round-robin and least-outstanding have no cap)",
+    )
     parser.add_argument("--seeds", default="0,1,2", help="workload seeds, comma separated")
     fleet = parser.add_argument_group("fleet")
     defaults = FleetConfig()
@@ -601,6 +642,7 @@ def main(argv: Sequence[str] | None = None, *, start_fleet: StartFleet | None = 
         variants = build_variants(
             [p for p in args.policies.split(",") if p],
             parse_numbers(args.approx_max_entries, int) if args.approx_max_entries else [],
+            parse_numbers(args.load_caps, int) if args.load_caps else [],
         )
         seeds = parse_numbers(args.seeds, int)
         fleet = FleetConfig(

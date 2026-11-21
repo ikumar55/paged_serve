@@ -79,7 +79,7 @@ def thread_fleet(variant: Variant, fleet: FleetConfig) -> Iterator[FleetEndpoint
         policy = make_policy(
             variant.policy,
             chunk_tokens=fleet.block_size,
-            load_cap=fleet.load_cap,
+            load_cap=variant.effective_load_cap(fleet) or fleet.load_cap,
             max_entries=variant.max_entries or DEFAULT_MAX_ENTRIES,
         )
         router = stack.enter_context(
@@ -202,6 +202,38 @@ def test_variants_are_validated_and_labelled() -> None:
         build_variants(["approx-prefix"], [8, 8])
 
 
+def test_a_load_cap_belongs_to_the_prefix_policies_only() -> None:
+    assert Variant("precise-prefix", load_cap=8).label == "precise-prefix[cap=8]"
+    assert Variant("approx-prefix", 64, 8).label == "approx-prefix[max-entries=64,cap=8]"
+    for policy in ("round-robin", "least-outstanding"):
+        with pytest.raises(ValueError, match="prefix policies"):
+            Variant(policy, load_cap=8)
+    with pytest.raises(ValueError, match="positive"):
+        Variant("approx-prefix", load_cap=0)
+    fleet = small_fleet(load_cap=16)
+    assert Variant("approx-prefix").effective_load_cap(fleet) == 16  # the fleet's, by default
+    assert Variant("approx-prefix", load_cap=4).effective_load_cap(fleet) == 4
+    assert Variant("round-robin").effective_load_cap(fleet) is None  # it has no cap to report
+
+
+def test_load_caps_multiply_the_prefix_policies_and_leave_the_others_alone() -> None:
+    policies = ["round-robin", "least-outstanding", "approx-prefix", "precise-prefix"]
+    labels = [v.label for v in build_variants(policies, [], [4, 32])]
+    assert labels == [
+        "round-robin",
+        "least-outstanding",
+        "approx-prefix[cap=4]",
+        "approx-prefix[cap=32]",
+        "precise-prefix[cap=4]",
+        "precise-prefix[cap=32]",
+    ]
+    with pytest.raises(ValueError, match="needs a prefix policy"):
+        build_variants(["round-robin"], [], [4])
+    # A memory-limited variant keeps the fleet's cap: it is a different question.
+    with_limit = build_variants(["approx-prefix"], [8], [4])
+    assert [(v.max_entries, v.load_cap) for v in with_limit] == [(None, 4), (8, None)]
+
+
 def test_spread_is_mean_with_min_and_max() -> None:
     assert spread([1.0, 2.0, 6.0]) == "3.0 (1.0 to 6.0)"
     assert spread([0.5, 0.25], scale=100, digits=0) == "38 (25 to 50)"
@@ -220,6 +252,9 @@ def test_commands_carry_the_settings_and_the_memory_limit_only_when_there_is_one
     assert "--max-entries" not in plain
     limited = router_command(9000, ["http://a"], Variant("approx-prefix", 33), fleet)
     assert limited[limited.index("--max-entries") + 1] == "33"
+    assert limited[limited.index("--load-cap") + 1] == "7"  # a memory limit leaves the cap alone
+    capped = router_command(9000, ["http://a"], Variant("precise-prefix", load_cap=3), fleet)
+    assert capped[capped.index("--load-cap") + 1] == "3"  # the variant's cap beats the fleet's
 
 
 # -- whole comparisons over a (threaded) fleet ---------------------------------------------------
@@ -233,6 +268,12 @@ def test_every_variant_of_a_seed_gets_the_same_requests_and_serves_all_of_them()
         (seed, v.label) for seed in (0, 1) for v in variants
     ]
     assert all(r["status"] == "ok" for r in runs)
+    # The cap each router really ran with is recorded: none for the policies without one.
+    assert {r["variant"]: r["load_cap"] for r in runs} == {
+        "round-robin": None,
+        "least-outstanding": None,
+        "approx-prefix": 16,
+    }
     for seed in (0, 1):
         digests = {r["workload_digest"] for r in runs if r["seed"] == seed}
         assert len(digests) == 1

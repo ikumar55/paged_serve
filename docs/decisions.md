@@ -275,11 +275,50 @@ estimates are recorded here as if they were results.
     precise one in these runs.
   - **Not established:** anything about a GPU, since all step times are placeholders; whether the
     TTFT differences (a few to a dozen milliseconds) are real; anything beyond this one workload
-    shape and three seeds; behaviour on Linux. The default load cap of 16 switches prefix affinity
-    off once replicas hold that many requests in flight (A and B), so the cap has to be chosen
-    against the load, which is an open item. The result files record commit `1c8e080` with `dirty`
-    true: the script was not yet committed when they were produced, and it is byte-identical to the
-    version committed with them.
+    shape and three seeds; behaviour on Linux. The result files record commit `1c8e080` with
+    `dirty` true: the script was not yet committed when they were produced, and it is
+    byte-identical to the version committed with them. (The load cap question is followed up
+    below.)
+
+  **Follow-up: load cap sweep and poll interval** (two more result files,
+  `results/router-compare-mock-load-cap-sweep.*` and `results/router-compare-mock-poll-interval.*`).
+  Same mock fleet as C (4 replicas, 64 prefixes of 512 tokens, 0.25 GB pool each, mock slowed 2x,
+  30 req/s) with a longer horizon of 1200 requests and three seeds. Unlike A and B this load was
+  not overloaded: 29.0 of 30 req/s achieved, no failed requests, no preemptions, the load generator
+  never late. The cap is now a per-variant setting (`--load-caps`), applied to the two prefix
+  policies; round-robin and least-outstanding have none. Hit rate, mean over seeds (range):
+  - **The cap decides whether affinity happens, and the switch is sharp between 8 and 16.**
+    Approximate / precise: cap 4 44.4% (43.7 to 45.7) / 44.5% (44.1 to 45.3), no better than
+    least-outstanding's 44.1%, because 1125 of 1200 requests (approximate) went elsewhere; cap 8
+    52.3% (52.1 to 52.6) / 54.9% (53.3 to 57.0); cap 16 71.5% (71.0 to 72.1) / 70.4% (69.3 to
+    71.2); cap 32 71.8% / 70.6%; cap off 72.4% (71.1 to 73.9) / 70.4% (68.4 to 71.6). From 16
+    upward nothing changed: at 16 the cap was reached for 9 of 1200 requests (approximate), so at
+    this load the default of 16 is high enough. The A and B result was therefore a property of
+    those overloaded runs, not of the cap value in general; the cap has to be set against the
+    number of requests in flight, which depends on the load.
+  - **No cap value gave both.** Computed-token imbalance was 1.07 (approximate) and 1.11 (precise)
+    at cap 8, where hit rate was only 52 to 55%, and 1.32 to 1.44 (approximate) and 1.16 to 1.33
+    (precise) at cap 16 and above, where it was 70 to 72%. The precise policy's 1.16 at cap 16
+    looks lower than at 32 and off, but the ranges overlap (1.13 to 1.18, 1.23 to 1.46, 1.14 to
+    1.48 for 16, 32, off) so that is not a finding. TTFT p50 was
+    64 to 65 ms at cap 16 and above against 78 and 83 ms for round-robin and least-outstanding;
+    p99 was 144 to 151 ms against 133 and 160 ms, overlapping, so again a better median is shown
+    and a better tail is not.
+  - **Precise polling every 0.05 s instead of 0.5 s** (cap off, same workloads, so the 0.5 s
+    counterpart is the `cap=1000` row above): precise 71.9% (70.2 to 73.0) against 70.4% (68.4 to
+    71.6), approximate 72.3% against 72.4%. The gap between approximate and precise narrowed from
+    about 2.0 points to 0.4, but the precise policy's two ranges overlap, so with three seeds that
+    is **not established**. The precise policy's no-match decisions barely moved (about 216
+    against 232 per 1200, the approximate policy's being 64), so staleness of the poll does not
+    explain most of them. Untested alternatives: the precise policy knows a prefix was evicted
+    (the pool is tight) and then sends the request to the least-loaded replica, which can scatter
+    a prefix, while the approximate policy stays loyal to the previous holder and recomputes there.
+    Its TTFT p50 was also worse at the fast poll (73 ms, range 71 to 76, against 65 ms), possibly
+    from the polling's own cost on a machine where everything shares the CPU; also untested.
+  - **Still not established:** everything under "Not established" above, plus what the best cap is
+    for another load or another number of replicas. These two files record commit `753130d` with
+    `dirty` true, because the per-variant cap was not yet committed when they were produced; the
+    script is byte-identical to the version committed with them.
 
 ### D-008 Mock backend for router, deployment and CI work
 
@@ -641,6 +680,7 @@ estimates are recorded here as if they were results.
   | RunPod | H100 PCIe | $2.89 | Which driver and CUDA the host advertises; disk size and its price |
   | Lambda | H100 PCIe | $3.79 | Whether it is a full VM with a driver that meets requirement 2 |
   | AWS | H100 only in 8-GPU sizes (earlier session's finding) | not applicable | A single-GPU size would have to exist for this to be a candidate |
+  | An Oxmiq Capsule machine (internal; raised by the user on 2026-11-20, nothing about it is known here) | unknown | unknown | Everything in the requirements: GPU model, a driver that advertises CUDA 13.2 or newer, dedicated for the whole session (D-017's shared fleet is the cautionary example), 60 GB of free disk, whether the self-test passes. The hardware owner can say which machines exist and who else uses them |
 
 - **What this changes in the plan (open items, not decisions):**
   - D-017 ruled out Hugging Face batch 64 because 16 GB is too small; on an 80 GB card that no
@@ -695,3 +735,4 @@ Design ideas taken from public papers and documentation; no code was copied.
 | Date | Change | Metric | Before | After | Result file and command |
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-20 | Prefix-aware routing (approximate) against round-robin, mock fleet, tight cache, load cap off (D-007; **mock backend, uncalibrated timing, not GPU**) | Fleet prefix-cache hit rate, mean of 3 seeds | 42.2% (round-robin) | 70.9% (approximate) | `results/router-compare-mock-tight-cache-uncapped.json`, `python -m bench.router_compare ... --load-cap 1000 --mock-time-scale 2 --rate 30` (full command in the file) |
+| 2026-11-20 | Load cap of the prefix policies, same mock fleet, 1200 requests at 30 req/s, not overloaded (D-007; **mock backend, uncalibrated timing, not GPU**) | Fleet prefix-cache hit rate of approx-prefix, mean of 3 seeds | 44.4% at cap 4 | 71.5% at cap 16 (unchanged, 71.8% at 32 and 72.4% with no cap) | `results/router-compare-mock-load-cap-sweep.json`, `python -m bench.router_compare ... --load-caps 4,8,16,32,1000` (full command in the file) |

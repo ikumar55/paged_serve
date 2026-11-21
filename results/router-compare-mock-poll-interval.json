@@ -1,0 +1,608 @@
+{
+  "backend": "mock",
+  "banner": "MOCK BACKEND, UNCALIBRATED TIMING. These numbers describe the routing policies and the plumbing on a CPU, with placeholder step times (D-008). They are not GPU performance and must not be quoted as such.",
+  "calibrated": false,
+  "command": "python -m bench.router_compare --out <redacted> --label precise policy polling every 0.05 s instead of 0.5 s: same workload as the load cap sweep, cap off --seeds 0,1,2 --num-requests 1200 --rate 30 --mock-time-scale 2 --shared-prefix-groups 64 --kv-cache-gb 0.25 --load-cap 1000 --poll-interval 0.05 --policies approx-prefix,precise-prefix",
+  "env": {
+    "captured_at_utc": "2026-11-21T00:16:30+00:00",
+    "git": {
+      "commit": "753130d21a9bd676ace1737971e59093eecd96b0",
+      "dirty": true
+    },
+    "gpus": [],
+    "nvcc_release": null,
+    "os": {
+      "machine": "AMD64",
+      "release": "11",
+      "system": "Windows"
+    },
+    "packages": {
+      "fastapi": "0.163.2",
+      "numpy": "2.5.5",
+      "prometheus-client": null,
+      "pytest": "9.2.0",
+      "torch": "2.15.0+cpu",
+      "transformers": "5.23.0",
+      "triton": null,
+      "uvicorn": "0.54.0",
+      "vllm": null
+    },
+    "python": {
+      "implementation": "CPython",
+      "version": "3.12.10"
+    },
+    "torch": {
+      "cuda_available": false,
+      "cuda_build": null,
+      "devices": [],
+      "installed": true,
+      "mps_available": false,
+      "version": "2.15.0+cpu"
+    }
+  },
+  "fleet": {
+    "block_size": 16,
+    "kv_cache_gb": 0.25,
+    "load_cap": 1000,
+    "max_batch_size": 32,
+    "poll_interval_s": 0.05,
+    "replicas": 4,
+    "time_scale": 2.0
+  },
+  "label": "precise policy polling every 0.05 s instead of 0.5 s: same workload as the load cap sweep, cap off",
+  "mock_timing": {
+    "decode_base_ms": 9.0,
+    "decode_ms_per_sequence": 0.1,
+    "prefill_base_ms": 3.0,
+    "prefill_ms_per_token": 0.03,
+    "time_scale": 2.0
+  },
+  "notes": [
+    "Placeholder mock timing (see mock_timing), not calibrated against any real run.",
+    "No warm-up: every policy starts with cold caches and pays for its first sight of each prefix.",
+    "Fresh replica and router processes for every run; variants of a seed receive the identical workload (see workload_digest).",
+    "Run on Windows: sleeps and scheduling here are not those of a Linux box, and the replicas, router and load generator share one machine.",
+    "The shared-prefix workload shape (groups, length, skew) is a modelling choice, not a measurement of real traffic."
+  ],
+  "runs": [
+    {
+      "load_cap": 1000,
+      "max_entries": null,
+      "policy": "approx-prefix",
+      "seed": 0,
+      "status": "ok",
+      "summary": {
+        "computed_tokens_imbalance": 1.4742701684629067,
+        "e2e_s": {
+          "count": 1200.0,
+          "max": 3.752709699998377,
+          "mean": 0.9929266176669868,
+          "p50": 0.8974487000014051,
+          "p90": 1.610722350001743,
+          "p99": 2.5909405680047346
+        },
+        "failure_counts": {},
+        "generator_saturated": false,
+        "ok": 1200,
+        "policy_stats": {
+          "decisions": 1200,
+          "entries": 6937,
+          "load_fallbacks": 0,
+          "matched": 1136,
+          "matched_chunks": 36352,
+          "no_match": 64
+        },
+        "prefix_hit_rate": 0.7277657822923848,
+        "prefix_hit_tokens": 510976,
+        "prefix_prompt_tokens": 702116,
+        "replicas": [
+          {
+            "block_evictions": 1983,
+            "computed_prompt_tokens": 30975,
+            "preemptions": 0,
+            "prefix_hit_tokens": 159232,
+            "prompt_tokens": 190207,
+            "served": 326
+          },
+          {
+            "block_evictions": 2716,
+            "computed_prompt_tokens": 41915,
+            "preemptions": 0,
+            "prefix_hit_tokens": 161280,
+            "prompt_tokens": 203195,
+            "served": 349
+          },
+          {
+            "block_evictions": 2910,
+            "computed_prompt_tokens": 47802,
+            "preemptions": 0,
+            "prefix_hit_tokens": 91136,
+            "prompt_tokens": 138938,
+            "served": 237
+          },
+          {
+            "block_evictions": 4370,
+            "computed_prompt_tokens": 70448,
+            "preemptions": 1,
+            "prefix_hit_tokens": 99328,
+            "prompt_tokens": 169776,
+            "served": 288
+          }
+        ],
+        "request_throughput_rps": 29.138752945347402,
+        "requests": 1200,
+        "router_counters": {
+          "bad_requests": 0,
+          "failovers": 0,
+          "no_replica": 0,
+          "upstream_errors": 0
+        },
+        "served_imbalance": 1.1633333333333333,
+        "ttft_s": {
+          "count": 1200.0,
+          "max": 0.20653010001115035,
+          "mean": 0.072380631500176,
+          "p50": 0.0659787500044331,
+          "p90": 0.1024588800093625,
+          "p99": 0.1496109529941168
+        }
+      },
+      "variant": "approx-prefix",
+      "workload_digest": "e1d3dc301abcec5c"
+    },
+    {
+      "load_cap": 1000,
+      "max_entries": null,
+      "policy": "precise-prefix",
+      "seed": 0,
+      "status": "ok",
+      "summary": {
+        "computed_tokens_imbalance": 1.3165799041480748,
+        "e2e_s": {
+          "count": 1200.0,
+          "max": 3.2847250000049826,
+          "mean": 0.9750086270832374,
+          "p50": 0.8729252500052098,
+          "p90": 1.5586211699934212,
+          "p99": 2.6221433080015415
+        },
+        "failure_counts": {},
+        "generator_saturated": false,
+        "ok": 1200,
+        "policy_stats": {
+          "decisions": 1200,
+          "load_fallbacks": 0,
+          "matched": 992,
+          "matched_chunks": 31744,
+          "no_match": 208
+        },
+        "prefix_hit_rate": 0.7239885052228253,
+        "prefix_hit_tokens": 507904,
+        "prefix_prompt_tokens": 701536,
+        "replicas": [
+          {
+            "block_evictions": 2714,
+            "computed_prompt_tokens": 42500,
+            "preemptions": 0,
+            "prefix_hit_tokens": 151552,
+            "prompt_tokens": 194052,
+            "served": 333
+          },
+          {
+            "block_evictions": 2296,
+            "computed_prompt_tokens": 34985,
+            "preemptions": 0,
+            "prefix_hit_tokens": 172544,
+            "prompt_tokens": 207529,
+            "served": 355
+          },
+          {
+            "block_evictions": 3891,
+            "computed_prompt_tokens": 63733,
+            "preemptions": 0,
+            "prefix_hit_tokens": 78848,
+            "prompt_tokens": 142581,
+            "served": 243
+          },
+          {
+            "block_evictions": 3236,
+            "computed_prompt_tokens": 52414,
+            "preemptions": 0,
+            "prefix_hit_tokens": 104960,
+            "prompt_tokens": 157374,
+            "served": 269
+          }
+        ],
+        "request_throughput_rps": 29.195813577251176,
+        "requests": 1200,
+        "router_counters": {
+          "bad_requests": 0,
+          "failovers": 0,
+          "no_replica": 0,
+          "upstream_errors": 0
+        },
+        "served_imbalance": 1.1833333333333333,
+        "ttft_s": {
+          "count": 1200.0,
+          "max": 0.2063273000094341,
+          "mean": 0.08008692741663254,
+          "p50": 0.07590150000032736,
+          "p90": 0.10896824000228685,
+          "p99": 0.16013618799916002
+        }
+      },
+      "variant": "precise-prefix",
+      "workload_digest": "e1d3dc301abcec5c"
+    },
+    {
+      "load_cap": 1000,
+      "max_entries": null,
+      "policy": "approx-prefix",
+      "seed": 1,
+      "status": "ok",
+      "summary": {
+        "computed_tokens_imbalance": 1.23436766133325,
+        "e2e_s": {
+          "count": 1200.0,
+          "max": 3.382327899991651,
+          "mean": 0.9254260616670823,
+          "p50": 0.824773650005227,
+          "p90": 1.5766603600015516,
+          "p99": 2.413073578991607
+        },
+        "failure_counts": {},
+        "generator_saturated": false,
+        "ok": 1200,
+        "policy_stats": {
+          "decisions": 1200,
+          "entries": 6830,
+          "load_fallbacks": 0,
+          "matched": 1136,
+          "matched_chunks": 36352,
+          "no_match": 64
+        },
+        "prefix_hit_rate": 0.7262691453892502,
+        "prefix_hit_tokens": 508416,
+        "prefix_prompt_tokens": 700038,
+        "replicas": [
+          {
+            "block_evictions": 2894,
+            "computed_prompt_tokens": 47025,
+            "preemptions": 0,
+            "prefix_hit_tokens": 123904,
+            "prompt_tokens": 170929,
+            "served": 292
+          },
+          {
+            "block_evictions": 2658,
+            "computed_prompt_tokens": 42114,
+            "preemptions": 0,
+            "prefix_hit_tokens": 131584,
+            "prompt_tokens": 173698,
+            "served": 297
+          },
+          {
+            "block_evictions": 2768,
+            "computed_prompt_tokens": 43350,
+            "preemptions": 0,
+            "prefix_hit_tokens": 158720,
+            "prompt_tokens": 202070,
+            "served": 348
+          },
+          {
+            "block_evictions": 3615,
+            "computed_prompt_tokens": 59133,
+            "preemptions": 0,
+            "prefix_hit_tokens": 94208,
+            "prompt_tokens": 153341,
+            "served": 263
+          }
+        ],
+        "request_throughput_rps": 28.985456486815902,
+        "requests": 1200,
+        "router_counters": {
+          "bad_requests": 0,
+          "failovers": 0,
+          "no_replica": 0,
+          "upstream_errors": 0
+        },
+        "served_imbalance": 1.16,
+        "ttft_s": {
+          "count": 1200.0,
+          "max": 0.2335567000118317,
+          "mean": 0.0697554050835485,
+          "p50": 0.06399384999531321,
+          "p90": 0.0961630100049661,
+          "p99": 0.14047716599874543
+        }
+      },
+      "variant": "approx-prefix",
+      "workload_digest": "cc7203da642d0b69"
+    },
+    {
+      "load_cap": 1000,
+      "max_entries": null,
+      "policy": "precise-prefix",
+      "seed": 1,
+      "status": "ok",
+      "summary": {
+        "computed_tokens_imbalance": 1.206757571590272,
+        "e2e_s": {
+          "count": 1200.0,
+          "max": 3.1754350999981398,
+          "mean": 0.9149942960002226,
+          "p50": 0.8166896000038832,
+          "p90": 1.5190145300075533,
+          "p99": 2.3804406129944256
+        },
+        "failure_counts": {},
+        "generator_saturated": false,
+        "ok": 1200,
+        "policy_stats": {
+          "decisions": 1200,
+          "load_fallbacks": 0,
+          "matched": 996,
+          "matched_chunks": 31872,
+          "no_match": 204
+        },
+        "prefix_hit_rate": 0.7299260897265577,
+        "prefix_hit_tokens": 510976,
+        "prefix_prompt_tokens": 700038,
+        "replicas": [
+          {
+            "block_evictions": 3060,
+            "computed_prompt_tokens": 49844,
+            "preemptions": 0,
+            "prefix_hit_tokens": 111616,
+            "prompt_tokens": 161460,
+            "served": 276
+          },
+          {
+            "block_evictions": 3538,
+            "computed_prompt_tokens": 57038,
+            "preemptions": 0,
+            "prefix_hit_tokens": 101376,
+            "prompt_tokens": 158414,
+            "served": 272
+          },
+          {
+            "block_evictions": 2888,
+            "computed_prompt_tokens": 47129,
+            "preemptions": 0,
+            "prefix_hit_tokens": 116224,
+            "prompt_tokens": 163353,
+            "served": 280
+          },
+          {
+            "block_evictions": 2288,
+            "computed_prompt_tokens": 35051,
+            "preemptions": 0,
+            "prefix_hit_tokens": 181760,
+            "prompt_tokens": 216811,
+            "served": 372
+          }
+        ],
+        "request_throughput_rps": 29.033242947044993,
+        "requests": 1200,
+        "router_counters": {
+          "bad_requests": 0,
+          "failovers": 0,
+          "no_replica": 0,
+          "upstream_errors": 0
+        },
+        "served_imbalance": 1.24,
+        "ttft_s": {
+          "count": 1200.0,
+          "max": 0.21118990000104532,
+          "mean": 0.07565597950027343,
+          "p50": 0.07118275000539143,
+          "p90": 0.10338934000028531,
+          "p99": 0.15142944700055522
+        }
+      },
+      "variant": "precise-prefix",
+      "workload_digest": "cc7203da642d0b69"
+    },
+    {
+      "load_cap": 1000,
+      "max_entries": null,
+      "policy": "approx-prefix",
+      "seed": 2,
+      "status": "ok",
+      "summary": {
+        "computed_tokens_imbalance": 1.5540530425887578,
+        "e2e_s": {
+          "count": 1200.0,
+          "max": 3.6002852999954484,
+          "mean": 0.9395316274998065,
+          "p50": 0.8259122000017669,
+          "p90": 1.6288874000019862,
+          "p99": 2.3426117429973963
+        },
+        "failure_counts": {},
+        "generator_saturated": false,
+        "ok": 1200,
+        "policy_stats": {
+          "decisions": 1200,
+          "entries": 6932,
+          "load_fallbacks": 0,
+          "matched": 1136,
+          "matched_chunks": 36352,
+          "no_match": 64
+        },
+        "prefix_hit_rate": 0.7141730408006378,
+        "prefix_hit_tokens": 500736,
+        "prefix_prompt_tokens": 701141,
+        "replicas": [
+          {
+            "block_evictions": 4850,
+            "computed_prompt_tokens": 77860,
+            "preemptions": 0,
+            "prefix_hit_tokens": 103936,
+            "prompt_tokens": 181796,
+            "served": 311
+          },
+          {
+            "block_evictions": 2903,
+            "computed_prompt_tokens": 47699,
+            "preemptions": 0,
+            "prefix_hit_tokens": 98816,
+            "prompt_tokens": 146515,
+            "served": 250
+          },
+          {
+            "block_evictions": 2465,
+            "computed_prompt_tokens": 38409,
+            "preemptions": 0,
+            "prefix_hit_tokens": 161280,
+            "prompt_tokens": 199689,
+            "served": 342
+          },
+          {
+            "block_evictions": 2286,
+            "computed_prompt_tokens": 36437,
+            "preemptions": 0,
+            "prefix_hit_tokens": 136704,
+            "prompt_tokens": 173141,
+            "served": 297
+          }
+        ],
+        "request_throughput_rps": 28.90773935270354,
+        "requests": 1200,
+        "router_counters": {
+          "bad_requests": 0,
+          "failovers": 0,
+          "no_replica": 0,
+          "upstream_errors": 0
+        },
+        "served_imbalance": 1.14,
+        "ttft_s": {
+          "count": 1200.0,
+          "max": 0.18538100000296254,
+          "mean": 0.07091106033317676,
+          "p50": 0.06379010000091512,
+          "p90": 0.10084607999597216,
+          "p99": 0.13942403300257863
+        }
+      },
+      "variant": "approx-prefix",
+      "workload_digest": "91a2a3184f3d0a1b"
+    },
+    {
+      "load_cap": 1000,
+      "max_entries": null,
+      "policy": "precise-prefix",
+      "seed": 2,
+      "status": "ok",
+      "summary": {
+        "computed_tokens_imbalance": 1.129344026321201,
+        "e2e_s": {
+          "count": 1200.0,
+          "max": 3.2248292000003858,
+          "mean": 0.9358525315831382,
+          "p50": 0.8292455499977223,
+          "p90": 1.5993074300000445,
+          "p99": 2.3176323530013905
+        },
+        "failure_counts": {},
+        "generator_saturated": false,
+        "ok": 1200,
+        "policy_stats": {
+          "decisions": 1200,
+          "load_fallbacks": 0,
+          "matched": 965,
+          "matched_chunks": 30880,
+          "no_match": 235
+        },
+        "prefix_hit_rate": 0.7017589899891747,
+        "prefix_hit_tokens": 492032,
+        "prefix_prompt_tokens": 701141,
+        "replicas": [
+          {
+            "block_evictions": 3621,
+            "computed_prompt_tokens": 59039,
+            "preemptions": 0,
+            "prefix_hit_tokens": 105472,
+            "prompt_tokens": 164511,
+            "served": 282
+          },
+          {
+            "block_evictions": 3306,
+            "computed_prompt_tokens": 53442,
+            "preemptions": 0,
+            "prefix_hit_tokens": 107520,
+            "prompt_tokens": 160962,
+            "served": 275
+          },
+          {
+            "block_evictions": 2655,
+            "computed_prompt_tokens": 40495,
+            "preemptions": 0,
+            "prefix_hit_tokens": 177664,
+            "prompt_tokens": 218159,
+            "served": 373
+          },
+          {
+            "block_evictions": 3466,
+            "computed_prompt_tokens": 56133,
+            "preemptions": 0,
+            "prefix_hit_tokens": 101376,
+            "prompt_tokens": 157509,
+            "served": 270
+          }
+        ],
+        "request_throughput_rps": 28.899679317357513,
+        "requests": 1200,
+        "router_counters": {
+          "bad_requests": 0,
+          "failovers": 0,
+          "no_replica": 0,
+          "upstream_errors": 0
+        },
+        "served_imbalance": 1.2433333333333334,
+        "ttft_s": {
+          "count": 1200.0,
+          "max": 0.23312259999511298,
+          "mean": 0.07742511174984733,
+          "p50": 0.07093139999778941,
+          "p90": 0.10791172001045198,
+          "p99": 0.15992064799807848
+        }
+      },
+      "variant": "precise-prefix",
+      "workload_digest": "91a2a3184f3d0a1b"
+    }
+  ],
+  "schema_version": 1,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "type": "router-policy-comparison",
+  "variant_labels": [
+    "approx-prefix",
+    "precise-prefix"
+  ],
+  "workload": {
+    "min_token_id": 1000,
+    "num_requests": 1200,
+    "output": {
+      "maximum": 128,
+      "median": 32,
+      "minimum": 1,
+      "sigma": 0.5
+    },
+    "prompt": {
+      "maximum": 256,
+      "median": 64,
+      "minimum": 1,
+      "sigma": 0.5
+    },
+    "rate": 30.0,
+    "shared_prefix_groups": 64,
+    "shared_prefix_len": 512,
+    "shared_prefix_skew": 1.0,
+    "vocab_size": 100000
+  }
+}
