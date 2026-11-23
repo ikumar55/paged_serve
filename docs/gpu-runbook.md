@@ -131,6 +131,24 @@ Each sweep records a manifest with the system, extra server arguments, GPU load 
 and whether another user contended the GPU. On a dedicated instance nothing should be contended;
 if a run is flagged, say so in the write-up.
 
+**On a shared machine, also watch the machine itself.** The manifest check sees only GPU
+utilisation just before a run. Start the monitor before the first sweep of a session and leave it
+running until the last (it samples every 2 s and writes a new file; it costs well under a core):
+
+```bash
+nohup nice -n 10 python -m bench.machine_monitor --out results/machine-monitor-<label>.jsonl \
+    --interval 2 > monitor.log 2>&1 < /dev/null &
+python -m bench.machine_audit --monitor results/machine-monitor-<label>.jsonl \
+    --sweep results/engine-<hw>-seed0 results/vllm-<hw>-seed0 --out results/machine-audit-<label>.md
+```
+
+The audit flags each run in which other users' CPU use, a foreign GPU process, or a GPU slowdown
+(thermal, hardware slowdown, power brake) showed up, and flags runs the monitor did not cover
+(those are not known to be clean). Check the machine is quiet **before** starting a pass too
+(`nvidia-smi` shows no other process; `top` shows no other user busy), and look at the audit
+before quoting any number. Do not copy results off the machine while a measurement is running:
+the copy is load of its own.
+
 ## 5. Reports
 
 ```bash
