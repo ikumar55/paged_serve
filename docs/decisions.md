@@ -763,7 +763,52 @@ estimates are recorded here as if they were results.
   - The CPU test suite passes on Linux: 323 passed, including the two load generator timing
     tests that fail intermittently on Windows (so that failure is the Windows clock); the 7
     real-weights CPU tests also pass.
-- **Measured effect on speed:** none yet.
+- **Measured effect on speed (2026-11-23, RTX 5090, bf16, Llama-3.2-1B-Instruct, the standard
+  workload):** each system was swept over arrival rates with a fresh server per run, workload
+  seeds 0 to 3 (seed 0 is pass 1, seeds 1 to 3 pass 2, the three systems interleaved within each
+  seed, a determinism self-test before every system), and the figures below are the mean of the
+  runs not flagged as contended, with the minimum to maximum in brackets. Per-seed reports are in
+  `results/*-rtx5090-p1/`, `results/*-rtx5090-seed{1,2,3}/` and `*-seed0-extra/`; the spreads are
+  in `results/variation-{engine,hf-static,vllm}-rtx5090.md`.
+  - **Delivered throughput, req/s (offered rate in the first column).** Engine and Hugging Face
+    static are shown at batch 64 (batch 32 within the spread up to 12 req/s, lower at 16); vLLM at
+    32 maximum sequences (pass 1 also ran 64, once per rate; pass 2 only 32, so only 32 has four
+    seeds).
+
+    | Offered | Engine | HF static, 20 ms window | vLLM |
+    | ---: | --- | --- | --- |
+    | 4 | 3.95 (3.78 to 4.11) | 3.84 (3.73 to 4.05) | 4.06 (3.94 to 4.20) |
+    | 8 | 7.64 (7.50 to 7.85) | 7.20 (6.91 to 7.46) | 8.01 (7.83 to 8.25) |
+    | 12 | 11.56 (11.33 to 11.81) | not run | not run |
+    | 16 | 14.35 (13.52 to 15.13) | 9.03 (8.44 to 9.44) | 15.80 (15.50 to 16.24) |
+    | 48 | not run | not run | 47.67 (47.30 to 48.30) |
+
+  - **Where each system stops keeping up.** Hugging Face static is already queueing at 4 req/s
+    (median time to first token 1.4 s) and is saturated by 16 req/s (median time to first token
+    21 s at batch 64, 33 s at batch 32; throughput 7.6 to 9.0 req/s, with about half of its decode
+    slots wasted on finished sequences in pass 1). The engine holds up through 8 req/s (median time
+    to first token 37 ms, p99 under 90 ms), is at its edge at 12 req/s (p99 321 ms at batch 64 but
+    509 to 3322 ms at batch 32) and is overloaded at 16 (11.8 to 15.1 req/s delivered, median
+    time to first token 1.6 s at batch 64 and 6.7 s at batch 32). vLLM keeps up at every rate
+    measured, to 48 req/s (p99 time to first token 214 ms, 98 to 420), so **its ceiling is above the
+    grid and is not found.**
+  - **Reading it.** At 16 req/s the engine delivers 1.6 times (batch 64) to 1.7 times (batch 32)
+    the Hugging Face static throughput, and the ranges do not overlap (13.5 to 15.1 against 8.4 to
+    9.4). vLLM at 16 req/s delivers 1.10 times the engine's batch-64 throughput; the two ranges
+    do not overlap (15.5 to 16.2 against 13.5 to 15.1), but the gap is small and it is one
+    machine. Beyond 16 req/s only vLLM was measured, so how much further it goes than the engine
+    is not known from these runs. In pass 1 the engine's median inter-token latency was 9 to 11 ms
+    against 2 to 3 ms for vLLM at the same rates; the likely cause is Python launch overhead
+    without CUDA graphs on a fast GPU, which is a prediction and has **not been profiled**.
+  - **Noise.** The relative range of delivered throughput across the four seeds is 2 to 8% for the
+    engine and vLLM where they keep up, 8 to 13% for Hugging Face at every rate, and 11 to 16% for
+    any overloaded cell (the earlier A6000 runs spread 10 to 19%). Four runs were flagged contended (GPU busy before the load started) and are left out of
+    the spreads: engine seed 1 at 8 req/s (both batch sizes, the same minutes), engine seed 2 at
+    16 req/s batch 32, and Hugging Face pass 1 at batch 16, 8 req/s; the cause was not identified.
+  - **Limits.** One consumer GPU, one model, one workload shape, bf16 only; no prefix-cache or
+    shared-prefix workload yet; the Hugging Face best setting is at the edge of its grid
+    (batch 64 is about the memory limit); the box's code was a `git archive` of commit b101006, so
+    the environment captures record `git.commit: null`.
 
 ## Open verification items
 
@@ -794,3 +839,5 @@ Design ideas taken from public papers and documentation; no code was copied.
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-20 | Prefix-aware routing (approximate) against round-robin, mock fleet, tight cache, load cap off (D-007; **mock backend, uncalibrated timing, not GPU**) | Fleet prefix-cache hit rate, mean of 3 seeds | 42.2% (round-robin) | 70.9% (approximate) | `results/router-compare-mock-tight-cache-uncapped.json`, `python -m bench.router_compare ... --load-cap 1000 --mock-time-scale 2 --rate 30` (full command in the file) |
 | 2026-11-20 | Load cap of the prefix policies, same mock fleet, 1200 requests at 30 req/s, not overloaded (D-007; **mock backend, uncalibrated timing, not GPU**) | Fleet prefix-cache hit rate of approx-prefix, mean of 3 seeds | 44.4% at cap 4 | 71.5% at cap 16 (unchanged, 71.8% at 32 and 72.4% with no cap) | `results/router-compare-mock-load-cap-sweep.json`, `python -m bench.router_compare ... --load-caps 4,8,16,32,1000` (full command in the file) |
+| 2026-11-23 | Engine against Hugging Face static batching (20 ms window, batch 64), RTX 5090, bf16, 1B model, standard workload, 16 req/s offered (D-019) | Delivered throughput, req/s, mean of 4 workload seeds (min to max) | 9.03 (8.44 to 9.44) (Hugging Face static) | 14.35 (13.52 to 15.13) (engine, batch 64) | `results/variation-engine-rtx5090.md`, `results/variation-hf-static-rtx5090.md`; `python -m bench.sweep --system engine\|hf-static ... --seed N` (the exact sweep commands are in `deploy/gpu_pass1.sh` and `deploy/gpu_pass2.sh`, and each run's manifest) |
+| 2026-11-23 | vLLM against the engine, same machine and workload, 16 req/s offered (D-019; vLLM not saturated even at 48 req/s, engine overloaded from 16) | Delivered throughput, req/s, mean of 4 workload seeds (min to max) | 14.35 (13.52 to 15.13) (engine, batch 64) | 15.80 (15.50 to 16.24) (vLLM) | `results/variation-engine-rtx5090.md`, `results/variation-vllm-rtx5090.md` |

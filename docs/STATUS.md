@@ -5,11 +5,13 @@ the work up. **Update this file at the end of every step.** It complements
 [`decisions.md`](decisions.md), which holds each design decision with its measured effect; where
 the two disagree, `decisions.md` is the record and this file is the map.
 
-Last updated: 2026-11-23, after the first run of the engine on a GPU (a Capsule RTX 5090 machine,
-D-019): setup, determinism self-test, GPU and CPU tests, a server smoke run and a greedy evaluation.
-The benchmark sweeps (section 7, step 3) were started and are not finished at this edit; see D-019
-and `results/` for what exists. **A machine in Oxmiq's Capsule fleet now holds project files; the
-cleanup duty in section 6, item 13 applies.**
+Last updated: 2026-11-23, after the first three-way benchmark on a Capsule RTX 5090 machine (D-019):
+engine, Hugging Face static batching and vLLM, four workload seeds each, with the determinism
+self-test before every system. The numbers are in section 3 and D-019. Not yet done: the
+prefix-cache and shared-prefix workloads, profiling the engine's inter-token latency, and finding
+vLLM's ceiling (it was not saturated at 48 req/s). **A machine in Oxmiq's Capsule fleet still holds
+project files (`~/pagedserve_work`, kept because more runs are plausible); the cleanup duty in
+section 6, item 13 applies.**
 
 ## 1. The project
 
@@ -40,10 +42,10 @@ server (and so the scheduler and paged cache) has run on one GPU, a Capsule RTX 
 | Router (D-007) | `router/policies.py`, `app.py`, `server.py` | Mock replicas and router over real sockets: pass-through, the four policies, load cap, failover, 503, disconnect propagation, load generator through the router; seven of eight broken variants fail (the eighth is an equivalent mutant); `--max-entries` (the approximate policy's memory limit) reaches the policy from the command line | Real engine replicas, GPU, mid-stream replica death. The mock-fleet comparison below is not GPU evidence |
 | Router policy comparison (D-007) | `bench/router_compare.py` | Replicas and router as real subprocesses over real sockets, mock backend; 37 deliberately broken variants of the script, the router flag and the policy factory (including the per-variant load cap) each make a test fail. Writing them found one real flaw (a refused write could leave half a result behind, now fixed) and a test that the digest of the workload was recorded from what was meant rather than what was sent (now from what is sent); results in section 3 | Anything about a GPU; Linux; more than 3 seeds and one workload shape; the load cap's effect beyond the two settings tried |
 | Load generator and workloads (D-014) | `bench/loadgen.py`, `workload.py`, `client.py`, `runner.py`, `metrics.py`, `results_io.py`, `plots.py` | Calibrated against a fake server; pinned hashes prove old workloads still regenerate exactly; optional shared-prefix mode | - |
-| HF static-batching baseline (D-015) | `bench/baselines/`, `bench/sweep*.py` | Swept and recorded on an RTX A6000 (the only real benchmark numbers, section 3) | Not yet re-run on the chosen benchmark machine |
-| Sweep tooling for engine and vLLM | `bench/sweep.py` | Command construction, validation and manifests tested with fake servers; the hf-static commands are pinned to what the recorded sweeps used | The vLLM server flags are from memory and unverified for vLLM 0.34.0; nothing has launched a real engine or vLLM sweep |
+| HF static-batching baseline (D-015) | `bench/baselines/`, `bench/sweep*.py` | Swept on an RTX A6000 (D-015) and again on a Capsule RTX 5090, four seeds, rates 4/8/16 at batch 32/64 (section 3, D-019) | Only 4 workload seeds; its best setting (batch 64) is still at the edge of the grid |
+| Sweep tooling for engine and vLLM | `bench/sweep.py` | Command construction, validation and manifests tested with fake servers; the hf-static commands are pinned to what the recorded sweeps used | Ran real engine, Hugging Face and vLLM 0.34.0 sweeps on the RTX 5090 (D-019), so the vLLM flags worked there; the box's code was a `git archive` of b101006, so env captures record `git.commit: null` |
 | GPU determinism self-test (D-016) | `bench/gpu_selftest.py` | Caught a faulty GPU once (results from it were retracted) | - |
-| GPU-box setup | `deploy/setup_gpu_box.sh`, `docs/gpu-runbook.md` | Ran on a Capsule RTX 5090 machine on 2026-11-23 (with `ALLOW_OLDER_DRIVER=1`, because the fleet's drivers advertise CUDA 13.0): built the engine environment and the self-test passed. The vLLM environment step and the runbook's sweep commands are being exercised in pass 1 (D-019) | A rented provider; the vLLM step unless D-019 says it ran |
+| GPU-box setup | `deploy/setup_gpu_box.sh`, `docs/gpu-runbook.md` | Ran on a Capsule RTX 5090 machine on 2026-11-23 (with `ALLOW_OLDER_DRIVER=1`, because the fleet's drivers advertise CUDA 13.0): built the engine environment and the self-test passed. The vLLM environment step and the sweep commands also ran (`deploy/gpu_pass1.sh`, `deploy/gpu_pass2.sh`; D-019) | A rented provider |
 | Dockerfiles, Kubernetes manifests | - | - | Not written; `deploy/` has only the setup script |
 
 Test suite (CPU): `323 passed, 10 deselected` on the Linux RTX 5090 machine on 2026-11-23, including
@@ -65,10 +67,19 @@ per cell unless stated; full method and caveats in D-015:
   differences of that size mean nothing.
 - Batch 16 saturates near 4.0 req/s (579 tokens/s); a batch window of 0 turns batching off.
 
-D-017 chose one RTX 5060 Ti (16 GB) machine for the three-way comparison and validated the stack on
-it (greedy evaluation: 200 of 200 identical, bf16), but **no benchmark has run there, and none has
-run this engine on any GPU.** vLLM served the model once as a smoke test. Do not quote the A6000
-numbers next to anything measured on another GPU.
+**RTX 5090 (2026-11-23, D-019): the three-way comparison**, same model, bf16, standard workload,
+mean of four workload seeds (min to max), delivered throughput in req/s at 16 req/s offered:
+Hugging Face static (batch 64, 20 ms window) **9.0 (8.4 to 9.4)**, this engine (batch 64) **14.4
+(13.5 to 15.1)**, vLLM **15.8 (15.5 to 16.2)**. The engine keeps up to about 12 req/s and is
+overloaded at 16; Hugging Face queues from 4 req/s and saturates near 7 to 9 req/s; vLLM kept up at
+every rate tried, to 48 req/s (47.7), so its ceiling is unknown. The engine's inter-token latency
+(9 to 11 ms in pass 1) is about three times vLLM's (2 to 3 ms); the likely cause (Python launch
+overhead, no CUDA graphs) is a prediction, not profiled. Spread across seeds is 2 to 16%. One GPU, one
+model, one workload shape. Tables: `results/variation-*-rtx5090.md`.
+
+D-017 chose an RTX 5060 Ti (16 GB) machine, validated the stack on it (greedy evaluation: 200 of
+200 identical, bf16) and never benchmarked there. Do not quote the A6000 numbers next to anything
+measured on another GPU, or the 5090 numbers next to either.
 
 D-016: one RTX PRO 6000 Blackwell returned different results for identical inputs; results from
 it are retracted. Every GPU measurement must be preceded by the self-test.
@@ -196,8 +207,10 @@ session.
     when they were made. It is byte-identical to the committed version (checksums compared).
 13. **Cleanup duty on shared Capsule machines (the user's requirement).** Everything the project puts
     on a Capsule machine lives in one directory, `~/pagedserve_work`, with every cache redirected
-    into it (`env.sh` in that directory). When the benchmark work ends, or if it is abandoned:
-    `rm -rf ~/pagedserve_work` on that machine, then check the home directory has only Capsule's own
+    into it (`env.sh` in that directory). Delete it only once the project is assumed finished with that
+    machine (nothing there will be used again) or if the work is abandoned; while more runs are
+    still plausible, keep it (it saves the 20-minute setup) and delete at the very end of the
+    project. To delete: `rm -rf ~/pagedserve_work` on that machine, then check the home directory has only Capsule's own
     files (no `pagedserve*`, `.nv`, `.triton`, `.tilelang`, `~/.cache/uv`). Do not leave a GPU
     server running. The 2026-11-18/19 runs had left about 50 GB on five other machines (deleted on
     2026-11-23); the 5090 machine's directory is the only thing left to remove. Machine names are
@@ -228,11 +241,13 @@ session.
    new GPU (the runbook runs only 32; D-015 found the best setting at the edge of its grid on the
    A6000, and an 80 GB card lifts D-017's 16 GB limit), which adds about 24 runs. Until the
    provider is chosen, D-018 stays a draft and `docs/gpu-runbook.md` has no provider-specific steps.
-3. **(In progress since 2026-11-23, on the Capsule RTX 5090 of D-019; nothing was rented and D-018
-   stays a draft.)** Set up, self-test, GPU and CPU tests, server smoke run and greedy evaluation are
-   done. Pass 1 (one seed: engine and Hugging Face static at batch sizes 32/64 and 16/32/64, rates
-   2/4/8/16, then vLLM) was started; the multi-seed repeats, reports and write-ups in D-003 to D-006
-   come after it. Original text of this step follows.
+3. **(Mostly done 2026-11-23, on the Capsule RTX 5090 of D-019; nothing was rented and D-018 stays a
+   draft.)** Set up, self-test, GPU and CPU tests, smoke run, greedy evaluation and the three-way
+   sweeps with four seeds are done and committed (`results/`, D-019). **Still to do:** write the
+   measured effects into D-003 to D-006 (D-019 holds them for now), the shared-prefix workloads
+   with the prefix cache on and off (D-005), vLLM at higher rates and the engine's batch sizes
+   beyond 64, and decide the fp32 test contract. The machine's directory is kept until these are
+   done or dropped. Original text of this step follows.
    **The GPU session itself**, following `docs/gpu-runbook.md`: set up, record both environments,
    smoke test, then the HF baseline, engine and vLLM sweeps with several seeds, then reports. Write
    the measured effects into D-003, D-004, D-005 and D-006 and add change-log rows. Plan as of
@@ -249,11 +264,13 @@ session.
 
 ## 8. Index
 
-- `docs/decisions.md`: D-001 to D-018 (D-018, the rented GPU, is a draft), each with decision,
-  reasons, alternatives and measured effect.
-- `docs/gpu-runbook.md`: the rented-GPU procedure.
-- `results/`: write-once benchmark outputs (A6000 sweeps, greedy evaluations, the variation table,
-  and `router-compare-mock-*` for the mock-fleet comparison, which is not GPU data).
+- `docs/decisions.md`: D-001 to D-019 (D-018, the rented GPU, is a draft; D-019, the Capsule RTX
+  5090, is in progress), each with decision, reasons, alternatives and measured effect.
+- `docs/gpu-runbook.md`: the GPU session procedure; `deploy/gpu_pass1.sh` and `deploy/gpu_pass2.sh`
+  are the exact scripts that produced the RTX 5090 sweeps.
+- `results/`: write-once benchmark outputs (A6000 and RTX 5090 sweeps, greedy evaluations, the
+  variation tables, and `router-compare-mock-*` for the mock-fleet comparison, which is not GPU
+  data).
 - Layout: `engine/` (model, KV cache, allocator, prefix cache, scheduler, server, mock), `router/`
   (policies, proxy, server), `bench/` (load generator, sweeps, baselines, GPU checks), `tests/`,
   `deploy/`.
