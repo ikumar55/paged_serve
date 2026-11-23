@@ -707,6 +707,64 @@ estimates are recorded here as if they were results.
   the provider's console is checked afterwards (`docs/gpu-runbook.md`, section 6).
 - **Measured effect:** none yet.
 
+### D-019 Benchmark machine: an Oxmiq Capsule RTX 5090 machine, not a rental (IN PROGRESS)
+
+- **Status:** in progress (started 2026-11-23). Supersedes D-018's plan to rent: nothing was
+  rented, so D-018 stays a draft that records the rental option and its prices (recorded
+  2026-11-20, never re-checked).
+- **Decision:** The Hugging Face baseline, this engine and vLLM are measured on one machine from
+  Oxmiq's Capsule fleet: one NVIDIA GeForce RTX 5090 (32 GB, Blackwell consumer), driver
+  580.173.02, 24 CPU cores, 62 GB RAM, Ubuntu with Python 3.12, reached through the Capsule CLI.
+  Hardware label for results: `rtx5090`. No machine names, addresses or user ids in result files.
+- **Why this machine (a survey of the fleet on 2026-11-23, read-only commands, one snapshot):** about
+  75 machines are listed, mostly Tenstorrent, Intel Arc, FPGA and CPU-only. Of the single-GPU
+  NVIDIA machines able to hold the benchmark, one RTX 5090 machine was idle (no other sessions,
+  load about 0, 2 MiB of GPU memory in use) with 73 GB free. The others failed on the same grounds as
+  in D-017 or on new ones: a second RTX 5090 (4 sessions, CPU load about 17, 51 GB free); an
+  RTX A6000 (disk 100% full, 5.5 GB free, partly from our own earlier files); an RTX PRO 4500
+  (23 GB of its GPU memory in use by someone else); an RTX PRO 6000 Blackwell on the driver
+  version of the one that failed D-016 (not used, and not confirmed to be the same unit); an RTX 5060
+  Ti (17 sessions, 16 GB); one "RTX 5090" machine with no GPU driver visible.
+- **Requirement relaxed, with the evidence:** D-018's "driver advertises CUDA 13.2 or newer" would
+  have ruled out the whole fleet (every NVIDIA machine surveyed advertises CUDA 13.0, drivers
+  580.x). D-017 had already run this torch build (2.15.0+cu132) on a 580.126.20 driver that also
+  advertises 13.0, and it passed the self-test and the greedy evaluation there. The check is now an
+  override in `deploy/setup_gpu_box.sh` (`ALLOW_OLDER_DRIVER=1`, which prints a warning) and the
+  D-016 self-test is the gate. **On this machine the self-test passed** (300 repeats per
+  operation, 0 differing elements, `silu` against float64 relative error 1.0e-7, torch 2.15.0+cu132,
+  CUDA runtime 13.2 on a driver advertising 13.0). That is one machine and one driver; it does not
+  show the mismatch is safe in general.
+- **Caveats to state wherever its numbers appear:** a consumer GPU on a shared company fleet, so
+  absolute numbers do not transfer and another user could start work on it at any time (the load
+  generator's contention flag and a GPU check before each batch of runs apply); one GPU class, so
+  a headline comparison is not general until repeated on a second class; the disk is 96 to 97% full
+  and shared, with about 59 GB free after setup; the Capsule user, driver and image can be changed
+  by the fleet's owners without notice.
+- **Cleanup duty (the user's requirement):** everything this project puts on the machine lives in
+  one directory, `~/pagedserve_work` (repo, virtual environments, weights, results, and every
+  cache redirected there through its `env.sh`). At the end: delete that directory and confirm
+  the home directory matches the baseline taken before setup (about 160 KB of Capsule-provisioned
+  files). Files Capsule itself creates on first connect (the account home, `authorized_keys`
+  with a `capsule-generated-key`, `.config/capsule`) are not ours and stay.
+- **Earlier leftovers removed (2026-11-23, with the user's approval):** the 2026-11-18/19 runs had
+  left `~/pagedserve_run` (2.7 to 14 GB), a pip/uv download cache (`~/.cache/uv`, 5 to 14 GB) and small
+  GPU caches (`.nv`, `.triton`, `.tilelang`, `.cache/vllm`) in the user's home on five other
+  machines, about 50 GB in all. All were deleted and each home was checked afterwards. This
+  repeats the lesson of D-017: a shared fleet needs the cleanup written down before the work
+  starts.
+- **Measured so far on this machine (CPU and GPU tests, not benchmarks):**
+  - The engine ran on CUDA for the first time. fp32 logits over 50 prompts: engine on the GPU is
+    **bit-identical** to Hugging Face on the same GPU (max abs difference 0.0); against Hugging Face
+    on the CPU the difference is 1.19e-3, which is exactly the difference between Hugging Face's own
+    GPU and CPU outputs on this card. `test_gpu_fp32_logits_match_cpu_reference_on_fifty_prompts` has
+    a target of 1e-3 and therefore **fails here** (1.19e-3), for a reason that is not the engine.
+    The 2048-token prompt agreed to 1.18e-5. Not yet decided whether the contract should become
+    "equal to Hugging Face on the same GPU" with the CPU gap reported against the measured floor.
+  - The CPU test suite passes on Linux: 323 passed, including the two load generator timing
+    tests that fail intermittently on Windows (so that failure is the Windows clock); the 7
+    real-weights CPU tests also pass.
+- **Measured effect on speed:** none yet.
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~
