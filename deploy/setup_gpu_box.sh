@@ -21,6 +21,8 @@
 #   TORCH_CUDA_INDEX  PyTorch wheel index for the CUDA build (default: cu132, matching the pins)
 #   VENV_DIR          where the environments go (default: $HOME/venvs)
 #   VLLM_VERSION      if set, install this vLLM version into its own environment
+#   ALLOW_OLDER_DRIVER  set to 1 to continue when the driver advertises an older CUDA than the
+#                     pinned torch build (the self-test still has to pass)
 set -euo pipefail
 
 TORCH_CUDA_INDEX="${TORCH_CUDA_INDEX:-cu132}"
@@ -48,10 +50,18 @@ WANT="${TORCH_CUDA_INDEX#cu}"           # e.g. 132 -> 13.2
 WANT_MAJOR="${WANT:0:2}"
 WANT_MINOR="${WANT:2}"
 WANT_VERSION="$WANT_MAJOR.$WANT_MINOR"
-# D-016: a runtime newer than the driver advertises can run and still misbehave, so refuse it.
+# D-016: a runtime newer than the driver advertises can run and still misbehave, so refuse it,
+# unless ALLOW_OLDER_DRIVER=1 is set. The override exists because D-017 ran this same cu132 stack
+# on a driver that advertises CUDA 13.0 and it passed the self-test and the greedy evaluation; with
+# the override, step 5 (the self-test) is the only gate, so do not skip it and say so in D-018.
 if [ "$(printf '%s\n%s\n' "$WANT_VERSION" "$DRIVER_CUDA" | sort -V | head -1)" != "$WANT_VERSION" ]; then
-    die "torch wants CUDA $WANT_VERSION but the driver only supports $DRIVER_CUDA. Pick another \
-TORCH_CUDA_INDEX (and record it) or another machine; do not run a newer runtime on an older driver."
+    if [ "${ALLOW_OLDER_DRIVER:-0}" = "1" ]; then
+        echo "WARNING: torch wants CUDA $WANT_VERSION, driver advertises $DRIVER_CUDA; continuing because" \
+             "ALLOW_OLDER_DRIVER=1. The self-test below decides whether this machine is usable."
+    else
+        die "torch wants CUDA $WANT_VERSION but the driver only supports $DRIVER_CUDA. Pick another \
+TORCH_CUDA_INDEX (and record it) or another machine, or set ALLOW_OLDER_DRIVER=1 (see the comment above)."
+    fi
 fi
 
 say "3. Engine environment"
