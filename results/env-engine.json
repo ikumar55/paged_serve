@@ -1,0 +1,50 @@
+{
+  "captured_at_utc": "2026-11-23T19:07:36+00:00",
+  "command": "python -m bench.env_capture",
+  "git": {
+    "commit": null,
+    "dirty": null
+  },
+  "gpus": [
+    {
+      "driver_version": "580.173.02",
+      "memory_total_mib": 32607,
+      "name": "NVIDIA GeForce RTX 5090"
+    }
+  ],
+  "nvcc_release": null,
+  "os": {
+    "machine": "x86_64",
+    "release": "6.8.0-85-generic",
+    "system": "Linux"
+  },
+  "packages": {
+    "fastapi": "0.163.2",
+    "numpy": "2.5.5",
+    "prometheus-client": null,
+    "pytest": "9.2.0",
+    "torch": "2.15.0+cu132",
+    "transformers": "5.23.0",
+    "triton": "3.9.0",
+    "uvicorn": "0.54.0",
+    "vllm": null
+  },
+  "python": {
+    "implementation": "CPython",
+    "version": "3.12.3"
+  },
+  "torch": {
+    "cuda_available": true,
+    "cuda_build": "13.2",
+    "devices": [
+      {
+        "compute_capability": "12.0",
+        "name": "NVIDIA GeForce RTX 5090",
+        "total_memory_bytes": 33668726784
+      }
+    ],
+    "installed": true,
+    "mps_available": false,
+    "version": "2.15.0+cu132"
+  }
+}
