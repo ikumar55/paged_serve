@@ -50,12 +50,15 @@ server (and so the scheduler and paged cache) has run on one GPU, a Capsule RTX 
 | GPU-box setup | `deploy/setup_gpu_box.sh`, `docs/gpu-runbook.md` | Ran on a Capsule RTX 5090 machine on 2026-11-23 (with `ALLOW_OLDER_DRIVER=1`, because the fleet's drivers advertise CUDA 13.0): built the engine environment and the self-test passed. The vLLM environment step and the sweep commands also ran (`deploy/gpu_pass1.sh`, `deploy/gpu_pass2.sh`; D-019) | A rented provider |
 | Dockerfiles, Kubernetes manifests | - | - | Not written; `deploy/` has only the setup script |
 
-Test suite (CPU): `323 passed, 10 deselected` on the Linux RTX 5090 machine on 2026-11-23, including
-the two timing tests that fail on Windows; `322 passed, 1 failed, 10 deselected` on Windows at the
-previous step (it was `299 passed, 2 failed` before the router comparison). The 10 deselected are GPU and real-weights tests. The failures are the load
-generator's two timing tests, which fail intermittently on Windows only (one or both on any given
-run; see section 6); they passed on the Linux machines in the log. The new tests add about 40
-seconds on Windows, mostly from starting servers.
+Test suite (CPU), `pytest -m "not gpu and not real_model"`: **`382 passed, 1 failed, 1 skipped, 10
+deselected` on Windows on 2026-11-24** (about 108 s). The one failure is one of the load
+generator's two timing tests, `test_runner.py::test_every_request_completes_in_order_at_its_scheduled_time`
+this time and `test_loadgen_cli.py::test_end_to_end_over_a_real_socket` in an earlier run: they
+fail intermittently on Windows only (15.6 ms clock tick; section 6) and passed on Linux
+(`323 passed, 10 deselected` on the RTX 5090 machine on 2026-11-23, before about 60 tests were
+added). The skip is the machine monitor's `/proc` test, Linux only; it passed on the Linux machine.
+The 10 deselected are GPU and real-weights tests, run by hand. The suite has not been run on Linux
+since the tests added on 2026-11-24, and CI has not run on any GPU-era commit.
 
 ## 3. Measurements so far
 
