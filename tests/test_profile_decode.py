@@ -90,6 +90,41 @@ def test_profile_batch_runs_end_to_end_on_a_tiny_cpu_model() -> None:
     assert result["context_len_at_end"] == 5 + 1 + 6
 
 
+def test_offline_throughput_serves_every_request_and_splits_the_time() -> None:
+    model = make_model(CFG)
+    pool = KVPool(CFG, 128, 4, torch.float32, "cpu")
+    with torch.inference_mode():
+        result = pd.offline_throughput(
+            model, pool, requests=6, prompt_len=5, new_tokens=7, max_batch_size=3
+        )
+    assert result["requests"] == 6
+    assert result["tokens_per_s"] == pytest.approx(6 * 7 / result["elapsed_s"])
+    assert result["requests_per_s"] == pytest.approx(6 / result["elapsed_s"])
+    assert 0 < result["decode_share"] < 1
+    assert 0 < result["admit_share"] < 1
+    assert result["decode_share"] + result["admit_share"] + result["other_share"] == pytest.approx(
+        1.0
+    )
+    assert result["mean_decode_batch"] > 1  # requests were decoded together
+    assert result["preemptions"] == 0
+    # every request got its tokens: prefill makes one, decode steps make the rest
+    assert result["decode_steps"] >= 6
+
+
+def test_render_offline_shows_a_row_per_batch_size() -> None:
+    record = {
+        "max_batch_size": 64,
+        "requests_per_s": 20.0,
+        "tokens_per_s": 2560.0,
+        "decode_share": 0.6,
+        "admit_share": 0.3,
+        "other_share": 0.1,
+        "mean_decode_batch": 40.0,
+        "preemptions": 0,
+    }
+    assert "| 64 | 20.0 | 2560 | 60% | 30% | 10% | 40.0 | 0 |" in pd.render_offline([record])
+
+
 def test_fill_batch_leaves_every_sequence_running_and_unfinished() -> None:
     model = make_model(CFG)
     pool = KVPool(CFG, 64, 4, torch.float32, "cpu")

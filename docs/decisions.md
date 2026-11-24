@@ -839,16 +839,24 @@ estimates are recorded here as if they were results.
     to first token 37 ms, p99 under 90 ms), is at its edge at 12 req/s (p99 321 ms at batch 64 but
     509 to 3322 ms at batch 32) and is overloaded at 16 (11.8 to 15.1 req/s delivered, median
     time to first token 1.6 s at batch 64 and 6.7 s at batch 32). vLLM keeps up at every rate
-    measured, to 48 req/s (p99 time to first token 214 ms, 98 to 420), so **its ceiling is above the
-    grid and is not found.**
-  - **Reading it.** At 16 req/s the engine delivers 1.6 times (batch 64) to 1.7 times (batch 32)
-    the Hugging Face static throughput, and the ranges do not overlap (13.5 to 15.1 against 8.4 to
-    9.4). vLLM at 16 req/s delivers 1.10 times the engine's batch-64 throughput; the two ranges
-    do not overlap (15.5 to 16.2 against 13.5 to 15.1), but the gap is small and it is one
-    machine. Beyond 16 req/s only vLLM was measured, so how much further it goes than the engine
-    is not known from these runs. In pass 1 the engine's median inter-token latency was 9 to 11 ms
-    against 2 to 3 ms for vLLM at the same rates; the likely cause is Python launch overhead
-    without CUDA graphs on a fast GPU, which is a prediction and has **not been profiled**.
+    up to 48 req/s (p99 time to first token 214 ms, 98 to 420), and its own ceiling was then
+    measured separately (next bullet): about 60 req/s.
+  - **vLLM's ceiling (one seed, `results/vllm-rtx5090-ceiling/`, machine audit clean).** With 32
+    maximum sequences vLLM delivered 60.6, 58.8 and 59.9 req/s at 64, 96 and 128 req/s offered
+    (8,500 to 8,700 tokens/s; median time to first token 2.2 s at 64 and 14 to 16 s above), so it
+    saturates at **about 60 req/s**. With 64 maximum sequences it sustained 64 req/s (63.2, p99 time
+    to first token 74 ms) and delivered 82.6 at both 96 and 128, but the sweep flagged those runs
+    "load generator saturated", so 82.6 is a lower bound on capacity and not a measured ceiling.
+    The load generator may also have limited the 32-sequence runs at 96 and 128.
+  - **Reading it.** At 16 req/s offered the engine delivers 1.6 times (batch 64) to 1.7 times
+    (batch 32) the Hugging Face static throughput, and the ranges do not overlap (13.5 to 15.1
+    against 8.4 to 9.4). At that rate vLLM is only 1.10 times the engine, because vLLM is far from
+    its limit there: **at saturation vLLM delivers at least 4 times what the engine does** (about
+    60 against 14 req/s, 8,700 against 2,060 tokens/s), so the 16 req/s comparison understates the
+    capacity gap and should not be quoted alone. In pass 1 the engine's median inter-token latency
+    was 9 to 11 ms against 2 to 3 ms for vLLM at the same rates; the decode-step profile in D-003
+    attributes about half of the engine's step time to launch overhead, the rest to GPU work that
+    a fused attention kernel would reduce.
   - **Noise.** The relative range of delivered throughput across the four seeds is 2 to 8% for the
     engine and vLLM where they keep up, 8 to 13% for Hugging Face at every rate, and 11 to 16% for
     any overloaded cell (the earlier A6000 runs spread 10 to 19%). Four runs were flagged contended (GPU busy before the load started) and are left out of

@@ -105,6 +105,50 @@ def compare(
     }
 
 
+def load_recorded_prompts(path: Path) -> tuple[list[list[int]], dict[str, Any]]:
+    """The exact prompts of a recorded ``bench.greedy_eval`` result, checked against its hash.
+
+    ``greedy_eval`` builds its prompts from this repository's own source files, so regenerating
+    them after the repository changes gives a different set (a recorded hash shows it). Reading
+    the recorded ids freezes the set, so two evaluations can be compared prompt for prompt.
+    """
+    from bench.greedy_eval import Prompt, prompt_set_hash
+
+    record = json.loads(path.read_text(encoding="utf-8"))
+    prompts = [Prompt(p["kind"], list(p["prompt_ids"])) for p in record["prompts"]]
+    expected = record["meta"]["prompt_set"]["sha256"]
+    actual = prompt_set_hash(prompts)
+    if actual != expected:
+        raise ValueError(
+            f"{path.name}: prompt hash {actual[:12]} does not match recorded {expected[:12]}"
+        )
+    return [p.ids for p in prompts], {
+        "source": path.name,
+        "sha256": expected,
+        **record["meta"]["prompt_set"],
+    }
+
+
+def logit_gap_record(
+    logits: torch.Tensor, reference_token: int, scheduler_token: int
+) -> dict[str, Any]:
+    """How far apart the reference model's own logits put its choice and the scheduler's.
+
+    ``logits`` are the reference's logits at the step where the two first differ. If the two
+    tokens are within one unit of the logits' numeric resolution (0.125 for bf16 logits of size 16
+    to 32), the difference is a tie broken differently by different rounding, not a wrong token.
+    """
+    values = logits.float()
+    top = values.topk(2).values
+    return {
+        "reference_token_minus_scheduler_token_logit": float(
+            values[reference_token] - values[scheduler_token]
+        ),
+        "reference_top1_minus_top2": float(top[0] - top[1]),
+        "reference_token_is_top1": bool(int(values.argmax()) == reference_token),
+    }
+
+
 def configs_for(
     num_prompts: int, tokens: int, max_prompt: int, max_batch: int
 ) -> list[SchedulerConfig]:
@@ -130,6 +174,13 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--tokens", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-batch", type=int, default=32)
+    parser.add_argument(
+        "--prompts-from",
+        type=Path,
+        default=None,
+        help="a recorded greedy-eval result: use its exact prompts (--prompts and --seed are "
+        "then ignored); without it the prompts are regenerated from this repository's files",
+    )
     return parser.parse_args(argv)
 
 
@@ -161,25 +212,44 @@ def main(argv: Sequence[str] | None = None) -> int:
     eos = reference_model.generation_config.eos_token_id
     pad_id = int(pad) if pad is not None else int(eos[0] if isinstance(eos, list) else eos or 0)
 
-    repo_root = Path(__file__).resolve().parents[1]
-    prompts = build_prompt_set(
-        lambda text: tokenizer(text, add_special_tokens=False)["input_ids"],
-        int(tokenizer.bos_token_id),
-        repo_root,
-        args.prompts,
-        args.seed,
-        engine.cfg.vocab_size,
-    )
-    ids = [p.ids for p in prompts]
+    if args.prompts_from is not None:
+        ids, prompt_meta = load_recorded_prompts(args.prompts_from)
+    else:
+        repo_root = Path(__file__).resolve().parents[1]
+        prompts = build_prompt_set(
+            lambda text: tokenizer(text, add_special_tokens=False)["input_ids"],
+            int(tokenizer.bos_token_id),
+            repo_root,
+            args.prompts,
+            args.seed,
+            engine.cfg.vocab_size,
+        )
+        ids = [p.ids for p in prompts]
+        prompt_meta = {
+            "source": "regenerated from this repository's files (changes when they change)",
+            "seed": args.seed,
+            "counts": counts_for(args.prompts),
+            "sha256": prompt_set_hash(prompts),
+        }
     started = time.perf_counter()
     reference = [hf_generate(reference_model, p, args.tokens, args.device, pad_id) for p in ids]
     print(f"reference done in {time.perf_counter() - started:.0f}s", file=sys.stderr)
-    del reference_model
 
     results: dict[str, Any] = {}
     with torch.inference_mode():
         for config in configs_for(len(ids), args.tokens, max(len(p) for p in ids), args.max_batch):
             produced, stats = run_scheduler(engine, ids, args.tokens, config, dtype)
+            comparison = compare(reference, produced)
+            for entry in comparison["diverged"]:  # why did it differ? (see logit_gap_record)
+                index, position = entry["prompt"], entry["first_divergence"]
+                if position < min(len(reference[index]), len(produced[index])):
+                    context = [*ids[index], *reference[index][:position]]
+                    logits = reference_model(torch.tensor([context], device=args.device)).logits
+                    entry.update(
+                        logit_gap_record(
+                            logits[0, -1], reference[index][position], produced[index][position]
+                        )
+                    )
             results[config.name] = {
                 "config": {
                     "num_blocks": config.num_blocks,
@@ -187,7 +257,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "prefix_caching": config.prefix_caching,
                 },
                 "scheduler": stats,
-                **compare(reference, produced),
+                **comparison,
             }
             r = results[config.name]
             print(
@@ -206,11 +276,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "torch": torch.__version__,
             "tokens": args.tokens,
             "block_size": BLOCK_SIZE,
-            "prompt_set": {
-                "seed": args.seed,
-                "counts": counts_for(args.prompts),
-                "sha256": prompt_set_hash(prompts),
-            },
+            "prompt_set": prompt_meta,
             "reference": "transformers generate, greedy, EOS disabled, same device and dtype",
         },
         "results": results,

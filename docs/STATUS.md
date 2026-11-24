@@ -9,8 +9,8 @@ Last updated: 2026-11-23, after the first three-way benchmark on a Capsule RTX 5
 engine, Hugging Face static batching and vLLM, four workload seeds each, with the determinism
 self-test before every system. A shared-prefix run (prefix cache on and off), a machine monitor and
 audit, and a monitored repeat of part of pass 2 followed. The numbers are in section 3 and D-019.
-Not yet done: profiling the engine's inter-token latency, finding vLLM's ceiling (it was not
-saturated at 48 req/s), and a second GPU class. **A machine in Oxmiq's Capsule fleet still holds
+Not yet done: any speed change (planned and pre-registered as D-020), explaining why the engine
+saturates at 14 req/s when its decode step would allow about 40, and a second GPU class. **A machine in Oxmiq's Capsule fleet still holds
 project files (`~/pagedserve_work`, kept because more runs are plausible); the cleanup duty in
 section 6, item 13 applies. Nothing is pushed.**
 
@@ -73,7 +73,8 @@ mean of four workload seeds (min to max), delivered throughput in req/s at 16 re
 Hugging Face static (batch 64, 20 ms window) **9.0 (8.4 to 9.4)**, this engine (batch 64) **14.4
 (13.5 to 15.1)**, vLLM **15.8 (15.5 to 16.2)**. The engine keeps up to about 12 req/s and is
 overloaded at 16; Hugging Face queues from 4 req/s and saturates near 7 to 9 req/s; vLLM kept up at
-every rate tried, to 48 req/s (47.7), so its ceiling is unknown. The engine's inter-token latency
+every rate up to 48 req/s and saturates near 60 req/s (8,700 tokens/s): **about 4 times the engine's
+capacity**, which the 16 req/s figure alone hides. The engine's inter-token latency
 (9 to 11 ms in pass 1) is about three times vLLM's (2 to 3 ms); the likely cause (Python launch
 overhead, no CUDA graphs) is a prediction, not profiled. Spread across seeds is 2 to 16%. One GPU, one
 model, one workload shape. Tables: `results/variation-*-rtx5090.md`.

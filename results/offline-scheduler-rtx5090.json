@@ -1,0 +1,39 @@
+{
+  "block_size": 16,
+  "device": "NVIDIA GeForce RTX 5090",
+  "dtype": "bfloat16",
+  "offline": [
+    {
+      "admit_share": 0.2527011295850843,
+      "decode_share": 0.7436785509791443,
+      "decode_steps": 508,
+      "elapsed_s": 5.0515354449962615,
+      "max_batch_size": 32,
+      "mean_decode_batch": 32.0,
+      "new_tokens": 128,
+      "other_share": 0.0036203194357714574,
+      "preemptions": 0,
+      "prompt_len": 256,
+      "requests": 128,
+      "requests_per_s": 25.338830419726914,
+      "tokens_per_s": 3243.370293725045
+    },
+    {
+      "admit_share": 0.32433275328942573,
+      "decode_share": 0.6720119500214975,
+      "decode_steps": 254,
+      "elapsed_s": 3.0658644060022198,
+      "max_batch_size": 64,
+      "mean_decode_batch": 64.0,
+      "new_tokens": 128,
+      "other_share": 0.0036552966890767147,
+      "preemptions": 0,
+      "prompt_len": 256,
+      "requests": 128,
+      "requests_per_s": 41.75005252985325,
+      "tokens_per_s": 5344.006723821216
+    }
+  ],
+  "results": [],
+  "torch": "2.15.0+cu132"
+}

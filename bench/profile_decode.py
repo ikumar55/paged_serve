@@ -170,6 +170,83 @@ def profile_batch(
     }
 
 
+def offline_throughput(
+    model: LanguageModel,
+    pool: KVPool,
+    *,
+    requests: int,
+    prompt_len: int,
+    new_tokens: int,
+    max_batch_size: int,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Run the scheduler to completion with no server or load generator and split its time.
+
+    Every request is waiting from the start, so the batch is as full as the scheduler can keep
+    it. The time of each step is divided into ``decode`` (the batched decode), ``admit`` (the
+    prefills of newly admitted requests and their bookkeeping) and ``other``. If the tokens per
+    second here are far above what the server delivers at saturation, the server (HTTP, streaming,
+    the event loop) is the cost; if they are close, the scheduler and its prefills are.
+    """
+    scheduler = Scheduler(model, pool, max_batch_size=max_batch_size, enable_prefix_caching=False)
+    generator = torch.Generator().manual_seed(seed)
+    for request_id in range(requests):
+        prompt = torch.randint(0, model.cfg.vocab_size, (prompt_len,), generator=generator)
+        scheduler.add_request(request_id, prompt.tolist(), new_tokens)
+    device = model.device
+    spent = {"decode": 0.0, "admit": 0.0}
+
+    def timed(label: str, method: Any) -> Any:
+        def run(result: Any) -> None:
+            sync(device)
+            started = time.perf_counter()
+            method(result)
+            sync(device)
+            spent[label] += time.perf_counter() - started
+
+        return run
+
+    scheduler._decode = timed("decode", scheduler._decode)  # type: ignore[method-assign]
+    scheduler._admit = timed("admit", scheduler._admit)  # type: ignore[method-assign]
+    sync(device)
+    started = time.perf_counter()
+    while scheduler.has_work:
+        scheduler.step()
+    sync(device)
+    elapsed = time.perf_counter() - started
+    stats = scheduler.stats()
+    return {
+        "max_batch_size": max_batch_size,
+        "requests": requests,
+        "prompt_len": prompt_len,
+        "new_tokens": new_tokens,
+        "elapsed_s": elapsed,
+        "requests_per_s": requests / elapsed,
+        "tokens_per_s": requests * new_tokens / elapsed,
+        "decode_share": spent["decode"] / elapsed,
+        "admit_share": spent["admit"] / elapsed,
+        "other_share": max(0.0, 1 - (spent["decode"] + spent["admit"]) / elapsed),
+        "decode_steps": scheduler.decode_steps,
+        "mean_decode_batch": stats.get("mean_decode_batch"),
+        "preemptions": scheduler.total_preemptions,
+    }
+
+
+def render_offline(results: Sequence[dict[str, Any]]) -> str:
+    lines = [
+        "| max batch | req/s | tokens/s | decode share | admit (prefill) share | other | "
+        "mean decode batch | preemptions |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for r in results:
+        lines.append(
+            f"| {r['max_batch_size']} | {r['requests_per_s']:.1f} | {r['tokens_per_s']:.0f} | "
+            f"{r['decode_share']:.0%} | {r['admit_share']:.0%} | {r['other_share']:.0%} | "
+            f"{r['mean_decode_batch']:.1f} | {r['preemptions']} |"
+        )
+    return "\n".join(lines)
+
+
 def render(results: Sequence[dict[str, Any]]) -> str:
     lines = [
         "| batch | wall ms/step | GPU busy ms/step | GPU idle | kernels/step | matmul | attention "
@@ -206,15 +283,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out", type=Path, required=True, help="JSON file to create (not overwritten)"
     )
+    parser.add_argument(
+        "--offline-requests",
+        type=int,
+        default=0,
+        help="also run this many requests through the scheduler with no server and report "
+        "where the time goes (0 = skip)",
+    )
+    parser.add_argument("--offline-new-tokens", type=int, default=128)
+    parser.add_argument(
+        "--skip-profile",
+        action="store_true",
+        help="only the offline run (needs --offline-requests)",
+    )
     args = parser.parse_args(argv)
+    if args.skip_profile and not args.offline_requests:
+        parser.error("--skip-profile needs --offline-requests")
 
     dtype = getattr(torch, args.dtype)
     model, _ = load_model(args.model_dir, dtype, args.device)
     per_token = model.cfg.kv_bytes_per_token(torch.empty((), dtype=dtype).element_size())
     num_blocks = int(args.kv_cache_gb * 2**30 // (per_token * args.block_size))
+    batch_sizes = [int(x) for x in args.batch_sizes.split(",")]
     results = []
+    offline = []
     with torch.inference_mode():
-        for batch_size in (int(x) for x in args.batch_sizes.split(",")):
+        for batch_size in [] if args.skip_profile else batch_sizes:
             pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
             results.append(
                 profile_batch(
@@ -227,6 +321,20 @@ def main(argv: list[str] | None = None) -> int:
             )
             del pool
             print(f"batch {batch_size}: {results[-1]['wall_ms_per_step_median']:.2f} ms/step")
+        for batch_size in batch_sizes if args.offline_requests else []:
+            pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
+            offline.append(
+                offline_throughput(
+                    model,
+                    pool,
+                    requests=args.offline_requests,
+                    prompt_len=args.prompt_len,
+                    new_tokens=args.offline_new_tokens,
+                    max_batch_size=batch_size,
+                )
+            )
+            del pool
+            print(f"offline, max batch {batch_size}: {offline[-1]['tokens_per_s']:.0f} tokens/s")
     record = {
         "device": torch.cuda.get_device_name(model.device)
         if model.device.type == "cuda"
@@ -235,10 +343,14 @@ def main(argv: list[str] | None = None) -> int:
         "dtype": args.dtype,
         "block_size": args.block_size,
         "results": results,
+        "offline": offline,
     }
     with args.out.open("x", encoding="utf-8") as handle:
         json.dump(record, handle, indent=2, sort_keys=True)
-    print(render(results))
+    if results:
+        print(render(results))
+    if offline:
+        print(render_offline(offline))
     return 0
 
 

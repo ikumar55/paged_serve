@@ -1,0 +1,17 @@
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:  51%|█████▏    | 75/146 [00:00<00:00, 743.57it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 860.15it/s]
+
+fp32, 50 prompts, max abs logit difference:
+  engine(GPU) vs HF(CPU) : 1.190e-03   <- at most the floor x 1.05
+  engine(GPU) vs HF(GPU) : 0.000e+00   <- at most 1e-04
+  HF(GPU)     vs HF(CPU) : 1.190e-03   <- floor: two fp32 implementations differ
+.
+fp32, 2048-token prompt, max abs logit difference:
+  engine(GPU) vs HF(CPU) : 1.180e-05   <- at most the floor x 1.05
+  engine(GPU) vs HF(GPU) : 0.000e+00   <- at most 1e-04
+  HF(GPU)     vs HF(CPU) : 1.180e-05   <- floor: two fp32 implementations differ
+.
+bf16 on GPU vs the fp32 CPU reference (50 prompts):
+  engine : top-1 agreement 0.9674, mean |diff| 0.0368
+  HF     : top-1 agreement 0.9686, mean |diff| 0.0359
+.
+3 passed in 20.14s

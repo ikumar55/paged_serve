@@ -1,0 +1,8 @@
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:   1%|          | 1/146 [00:00<00:15,  9.10it/s]Loading weights:  58%|█████▊    | 84/146 [00:00<00:00, 468.87it/s]Loading weights:  95%|█████████▍| 138/146 [00:00<00:00, 492.70it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 456.28it/s]
+50 prompts; largest |logit| in the float64 reference: 31.5
+max abs error against it, over the prompts:
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:  41%|████      | 60/146 [00:00<00:00, 591.64it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 813.13it/s]
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:  49%|████▉     | 72/146 [00:00<00:00, 719.65it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 843.08it/s]
+  hf fp32, CPU       max 1.800e-04  median 2.626e-05  | 2048-token prompt, last position: 4.945e-06
+  hf fp32, GPU       max 1.012e-03  median 2.354e-05  | 2048-token prompt, last position: 1.031e-05
+  engine fp32, GPU   max 1.012e-03  median 2.354e-05  | 2048-token prompt, last position: 1.031e-05

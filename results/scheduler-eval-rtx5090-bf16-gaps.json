@@ -1,0 +1,426 @@
+{
+  "meta": {
+    "block_size": 16,
+    "captured_at_utc": "2026-11-24T00:41:28+00:00",
+    "device": "NVIDIA GeForce RTX 5090",
+    "dtype": "bfloat16",
+    "label": "rtx5090-bf16-gaps",
+    "model": "Llama-3.2-1B-Instruct",
+    "prompt_set": {
+      "counts": {
+        "code": 15,
+        "prose": 20,
+        "random": 15
+      },
+      "seed": 0,
+      "sha256": "8de40b6f93519282e93521a5613e36e6c5f969a30810103cf153e8d3a3428c54"
+    },
+    "reference": "transformers generate, greedy, EOS disabled, same device and dtype",
+    "tokens": 64,
+    "torch": "2.15.0+cu132"
+  },
+  "results": {
+    "no-prefix-cache": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 658,
+        "prefix_caching": false
+      },
+      "diverged": [
+        {
+          "first_divergence": 39,
+          "prompt": 0,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 11,
+          "prompt": 2,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 16,
+          "prompt": 3,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 8,
+          "prompt": 6,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 6,
+          "prompt": 7,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 34,
+          "prompt": 9,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 14,
+          "prompt": 11,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 18,
+          "prompt": 16,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 54,
+          "prompt": 27,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 23,
+          "prompt": 28,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 17,
+          "prompt": 29,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 28,
+          "prompt": 32,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 49,
+          "prompt": 33,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 10,
+          "prompt": 44,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 4,
+          "prompt": 45,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 48,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        }
+      ],
+      "identical": 34,
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 0,
+        "steps": 127
+      }
+    },
+    "preempting": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 138,
+        "prefix_caching": true
+      },
+      "diverged": [
+        {
+          "first_divergence": 31,
+          "prompt": 0,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 11,
+          "prompt": 2,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 27,
+          "prompt": 3,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 8,
+          "prompt": 6,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 6,
+          "prompt": 7,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 34,
+          "prompt": 9,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 14,
+          "prompt": 11,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 50,
+          "prompt": 14,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 18,
+          "prompt": 16,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 16,
+          "prompt": 20,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 25,
+          "prompt": 26,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 29,
+          "prompt": 30,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 28,
+          "prompt": 32,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 49,
+          "prompt": 33,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 10,
+          "prompt": 44,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 4,
+          "prompt": 45,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 11,
+          "prompt": 46,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 48,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        }
+      ],
+      "identical": 32,
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 16.50793650793651,
+        "preemptions": 30,
+        "prefix_hit_tokens": 176,
+        "steps": 190
+      }
+    },
+    "served": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 658,
+        "prefix_caching": true
+      },
+      "diverged": [
+        {
+          "first_divergence": 39,
+          "prompt": 0,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 11,
+          "prompt": 2,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 16,
+          "prompt": 3,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 8,
+          "prompt": 6,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 6,
+          "prompt": 7,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 34,
+          "prompt": 9,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 14,
+          "prompt": 11,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 18,
+          "prompt": 16,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 54,
+          "prompt": 27,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 23,
+          "prompt": 28,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 17,
+          "prompt": 29,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 28,
+          "prompt": 32,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 49,
+          "prompt": 33,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 10,
+          "prompt": 44,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 4,
+          "prompt": 45,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 48,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.125,
+          "reference_top1_minus_top2": 0.125
+        }
+      ],
+      "identical": 34,
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 0,
+        "steps": 127
+      }
+    }
+  },
+  "schema_version": 1
+}
