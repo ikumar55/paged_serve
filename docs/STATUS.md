@@ -315,10 +315,12 @@ session.
    must meet the same requirements (dedicated, driver, self-test, disk).
 4. **Speed work only after profiling.** Done (2026-11-24, opt-in, labelled diagnostics, caveats in
    D-025, D-020, D-026, D-027): the in-place decode-attention kernel and CUDA graphs on it, about 2.1
-   times the gather path at saturation. **Next:** D-028 (where the engine thread's time goes now;
-   built on the CPU, measurement waiting for the machine), then batched prefill (D-029) if
-   admission is at least 20% of the step, then chunked prefill (Sarathi-Serve) if long prompts hurt
-   decode latency.
+   times the gather path at saturation. **Next:** the phased plan in `docs/roadmap.md` (Plan from
+   here, proposed after the second review): D-028 and the D-027 rerun in one machine session; then,
+   without the machine, the credibility sweep and the Docker and Kubernetes files; then batched
+   prefill (D-029) if D-028 triggers it, the matched same-session vLLM comparison (D-030), what
+   paging buys (D-023) and the router on real replicas (D-022); stretch: the simulator and a second
+   model. Chunked prefill (Sarathi-Serve) only if long prompts hurt decode latency.
 5. **Deployment:** Dockerfiles and Kubernetes manifests in `deploy/` (cannot be tested without
    Docker or a cluster; mark them untested if written without one).
 6. **Decide the D-011 extension** (serving simulator, which needs the calibrated mock, or a
@@ -332,6 +334,9 @@ session.
   experiments), each with decision, reasons, alternatives and measured effect.
 - `docs/roadmap.md`: the planned scope reconstructed (the original plan was lost) against what is
   done and what remains; a living document.
+- `docs/second-review-2026-11-24.md`: a second review by a fresh chat given only the repository (its
+  response unedited, with our verification notes and a tracker S2-1 to S2-18 mapping each finding
+  to the roadmap item that handles it).
 - `docs/independent-review-2026-11-24.md`: an independent, sceptical review of the claims against the
   raw data (unedited), with a status table of what has been done about each finding (a living
   document: update the table as findings are resolved).

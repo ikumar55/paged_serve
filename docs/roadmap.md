@@ -51,8 +51,48 @@ step was GPU-bound, attention and gather 84% of GPU time); **step 4, the speed l
   after the fact (D-025, D-020 entries).
 
 After D-028: if admission (the one-at-a-time prefills) is at least 20% of the step, batched
-prefill is D-029 (plan first); otherwise the server layer. Then items 5, 6, 8, 7, 2 (the remaining
-baseline work), 9 as findings move, then 10.
+prefill is D-029 (plan first); otherwise the server layer. The remaining order is in **Plan from
+here** below (it replaces the older order "then items 5, 6, 8, 7, 2, 9, 10").
+
+## Plan from here (proposed 2026-11-24 evening after the second review; the owner confirms or changes it)
+
+Aim: good results across the original breadth (engine, baselines, speed, router, paging,
+deployment), with Docker and Kubernetes included, **without dragging on**. The second review
+(`docs/second-review-2026-11-24.md`, tracker S2-1 to S2-18) is folded in. One item at a time inside
+each phase; every experiment keeps the rule of a written plan before any code or run. Time boxes
+are estimates, not promises.
+
+1. **Phase 1, one machine session (about 1 hour of machine time, when the machine is available):**
+   D-028 (amended to also run at 48 req/s offered, S2-6) and the D-027 rerun that records the
+   graphs' replay counts (S2-8). Finish with the usual write-up, then decide D-029 from the
+   admission share.
+2. **Phase 2, no machine needed (about 1.5 days):**
+   - **Credibility sweep (item 12):** push and get CI green (needs the owner's say-so); write the
+     commit id into every result manifest and environment capture (S2-11); find the cause of the
+     gather arm's ConnectErrors from the existing records (S2-3); cut the README to a short summary
+     with one table and the three caveats (S2-9); a one-page summary table at the top of
+     `decisions.md` (S2-16); build and CPU-test a sensitive bf16 accuracy tool, KL or perplexity on
+     real text against fp32 and Hugging Face bf16 (S2-7).
+   - **Deployment (item 7):** Dockerfiles for the engine server, the router and the load generator,
+     and Kubernetes manifests (a Deployment with a GPU resource request, a Service, a router
+     Deployment with the replicas as endpoints, config, probes on `/health`); validated offline
+     with a manifest linter and a dry run, **marked untested on a cluster** unless a Docker host or
+     a cluster is found.
+3. **Phase 3, machine sessions (about 3 or 4):** **batched prefill (D-029) first if D-028 triggers
+   it**, so that the next comparison measures the final engine; then the **matched vLLM comparison
+   (item 11, D-030)**: same session, vLLM at 32 and 64 sequences, every system offered at least 1.5
+   times its capacity, a load generator that is not the bottleneck, interleaved by seed, and a
+   length-bucketed gather arm as a fairer own-baseline (S2-1, S2-2, S2-4, S2-5); then **D-023 what
+   paging buys (item 8)** (S2-13); then **the router on real replicas (item 5, D-022)** with the
+   replicas as processes on the one GPU (S2-14); the sensitive bf16 accuracy run on the tool from
+   phase 2; the **kernel microbenchmark (item 13, D-031)**, GB/s against the card's peak and a
+   comparison with PyTorch's own attention (and FlashInfer or flash-attn if they install), with
+   split-KV and autotuning tried, only if time remains (S2-12).
+4. **Phase 4, stretch:** the calibrated simulator (item 6, D-024) and generality on a second model
+   or GPU class with real text (item 14, D-032) (S2-15).
+
+**Cut line: after phase 3 the project is complete enough to present.** Phase 4 is done only if time
+remains. If the machine stays unavailable, phase 2 can be done first.
 
 | # | Planned item | Where it is decided | Status | What remains |
 | ---: | --- | --- | --- | --- |
@@ -62,7 +102,11 @@ baseline work), 9 as findings move, then 10.
 | 4 | Speed work, only after profiling | D-003, D-020, D-021, D-025, D-026, D-027, D-028 | **Current.** Kernel (D-025) and CUDA graphs (D-020) built and tested; strict gates failed in bf16, accuracy standards D-026 and D-027 met (post-hoc); diagnostics 1.55 times then 1.40 times, about 2.1 times the gather path in total; D-028 planned | D-028 measurement and the D-027 replay-count rerun (waiting for the machine); batched prefill (D-029) if admission is at least 20% of the step |
 | 5 | Router with prefix-cache-aware policies, validated on **real replicas** (the Phase 2 gate) | D-007, D-011, **D-022** | Built; compared only on a mock fleet. **Pre-registered (D-022); harness not yet changed; nothing measured** | Add a real-backend option to `bench/router_compare.py`, then run D-022 |
 | 6 | One extension: a calibrated serving simulator (chosen) or speculative decoding (declined) | D-011, **D-024** | **Pre-registered (D-024); not started** | Measure step and prefill times, fit the timing model, validate on held-out cells |
-| 7 | Deployment: Dockerfiles and Kubernetes manifests | STATUS | Not written | Write them; mark untested if Docker or a cluster is unavailable (Docker is not installed on the laptop) |
+| 7 | Deployment: Dockerfiles and Kubernetes manifests | STATUS | Not written; **scheduled in phase 2 of Plan from here** | Write them; validate offline with a manifest linter and a dry run; mark untested on a cluster if Docker or a cluster is unavailable (Docker is not installed on the laptop) |
 | 8 | What paging buys (raised by the independent review) | review, **D-023** | **Pre-registered (D-023); no run yet** | Run the block-size experiment at a binding memory budget |
-| 9 | Review findings | `docs/independent-review-2026-11-24.md` | Tracked there | Follow its status table |
+| 9 | Review findings | `docs/independent-review-2026-11-24.md`, `docs/second-review-2026-11-24.md` | Tracked there | Follow their status tables |
 | 10 | Cleanup of the shared benchmark machine | STATUS section 6, item 13 | Pending | Delete `~/pagedserve_work` after the last GPU work, and confirm the home directory is back to baseline |
+| 11 | Matched same-session vLLM comparison (second review S2-1, S2-2, S2-4, S2-5) | second review, **D-030 (to plan)** | Not planned yet | vLLM at 32 and 64 sequences, every system offered at least 1.5 times capacity, a load generator that is not the bottleneck, a length-bucketed gather arm; interleaved by seed in one session; after D-029 if that is triggered |
+| 12 | Credibility sweep (S2-3, S2-7, S2-9, S2-10, S2-11, S2-16, S2-18) | second review | Not started; phase 2, no machine needed | Push and CI, commit ids in results, ConnectError cause, README cut, decision-log summary table, a sensitive bf16 accuracy tool (KL or perplexity) |
+| 13 | Kernel microbenchmark (S2-12) | second review, **D-031 (to plan)** | Not planned yet | GB/s against the card's peak, comparison with PyTorch attention (and FlashInfer or flash-attn if they install), split-KV and autotuning tried; only if time remains |
+| 14 | Generality on a second model or GPU class with real text (S2-15) | second review, **D-032 (to plan)** | Not planned yet; stretch, phase 4 | Repeat the kernel-plus-graphs comparison on one more model, EOS-terminated lengths |

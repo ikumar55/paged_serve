@@ -1656,7 +1656,9 @@ estimates are recorded here as if they were results.
     ratios 1.607, 1.421, 1.682 and 1.493, mean 1.551, lowest 1.421** (tokens per second give the
     same ratios). Inter-token latency p50 fell from 25 to 28.5 ms to 15.4 to 15.9 ms. The kernel
     runs completed all 1,920 requests every time; the gather runs completed 1,750, 1,913, 1,767
-    and 1,838 (the rest did not finish; the cause was not examined). The gather runs' throughput
+    and 1,838 (the rest did not finish: the load generator logged a `ConnectError` for 170, 7, 153 and 82 of
+    them on seeds 0 to 3, found by the second review; why the server refused those connections
+    under the gather path's overload has not been investigated). The gather runs' throughput
     (13.1 to 15.2) matches the earlier engine saturation figures (14.2, range 13.2 to 16.0), so
     this session was consistent with the earlier ones.
   - *Against the predictions and reading fixed beforehand:* the step is 38 to 60% shorter
@@ -1908,6 +1910,16 @@ estimates are recorded here as if they were results.
   with forced preemption, a fake clock that gives each phase its own interval, the arithmetic of
   the report on synthetic snapshots, the prediction ranges, the command line); eight deliberate
   breakages of the accounting and the report are all caught; the CPU suite is 441 passed.
+- **Amendment 1 to the plan (2026-11-24, from the second review, before any D-028 result
+  exists; predictions and readings above are unchanged).** The D-020 graph arm delivered 28.98 of
+  32 req/s offered, only about 10% below the arrivals, so at 32 req/s the engine may not be far
+  enough into saturation for the phase split to be the saturated one (the reviewer counted 115 to
+  233 requests still in the system at 55 s). The measurement therefore runs **two offered rates
+  per seed, 32 and 48 req/s** (48 is about 1.5 times the graph arm's capacity), batch 64, four
+  seeds. Prediction (6) (accounting costs nothing: within 3% of 28.98 req/s) is checked on the
+  32 req/s runs; predictions (1) to (5) are read on the **48 req/s** runs and also reported at 32.
+  If the shares differ by more than 5 points between the two rates, the 48 req/s figures are the
+  ones used for the decision rule, and the difference is itself reported.
 - **Measured effect:** none yet. The measurement is waiting for the machine.
 
 ## Open verification items
