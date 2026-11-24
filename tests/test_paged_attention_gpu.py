@@ -102,7 +102,11 @@ def test_padded_entries_pointing_at_an_owned_block_zero_are_not_read() -> None:
 def test_kernel_accepts_the_queries_the_model_produces() -> None:
     # The model hands over q as a transposed view, [batch, heads, 1, head_dim] with unusual strides.
     case = make_case(CASES["ragged"], device="cuda", seed=2)
-    view = case.q.transpose(1, 2).contiguous().transpose(1, 2)  # same values, [B,1,H,D] storage
+    # A slice of a wider tensor: same values, but the batch and head strides are not those of a
+    # packed [B, H, 1, D] tensor (a plain transpose of a size-1 dimension would still be packed).
+    wide = torch.zeros(*case.q.shape[:2], 3, case.q.shape[3], device="cuda", dtype=case.q.dtype)
+    wide[:, :, 1:2] = case.q
+    view = wide[:, :, 1:2]
     assert view.shape == case.q.shape and not view.is_contiguous()
     assert torch.equal(
         kernel()(view, case.k_pool, case.v_pool, case.tables, case.lengths),  # type: ignore[operator]

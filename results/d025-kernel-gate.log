@@ -1,0 +1,112 @@
+.............s...                                                        [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_paged_attention.py:196: checks the no-GPU message
+16 passed, 1 skipped in 2.36s
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0 -- <home>/pagedserve_work/venvs/pagedserve/bin/python
+rootdir: <home>/pagedserve_work/paged_serve
+configfile: pyproject.toml
+plugins: anyio-4.16.0
+collecting ... collected 15 items
+
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[batch60-fp32] batch60 torch.float32 seed 0: gather 9.565e-07 kernel 2.413e-07
+batch60 torch.float32 seed 1: gather 8.714e-07 kernel 2.713e-07
+batch60 torch.float32 seed 2: gather 8.057e-07 kernel 4.181e-07
+batch60 torch.float32 seed 3: gather 1.247e-06 kernel 3.486e-07
+batch60 torch.float32 seed 4: gather 7.588e-07 kernel 3.154e-07
+batch60 torch.float32: worst kernel/gather error ratio 0.52
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[batch60-bf16] batch60 torch.bfloat16 seed 0: gather 3.971e-03 kernel 3.842e-03
+batch60 torch.bfloat16 seed 1: gather 4.253e-03 kernel 3.879e-03
+batch60 torch.bfloat16 seed 2: gather 4.716e-03 kernel 3.805e-03
+batch60 torch.bfloat16 seed 3: gather 4.474e-03 kernel 3.821e-03
+batch60 torch.bfloat16 seed 4: gather 3.979e-03 kernel 3.893e-03
+batch60 torch.bfloat16: worst kernel/gather error ratio 0.98
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[boundaries-fp32] boundaries torch.float32 seed 0: gather 7.384e-07 kernel 3.174e-07
+boundaries torch.float32 seed 1: gather 1.115e-06 kernel 1.961e-07
+boundaries torch.float32 seed 2: gather 9.381e-07 kernel 2.500e-07
+boundaries torch.float32 seed 3: gather 7.904e-07 kernel 2.063e-07
+boundaries torch.float32 seed 4: gather 1.290e-06 kernel 4.402e-07
+boundaries torch.float32: worst kernel/gather error ratio 0.43
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[boundaries-bf16] boundaries torch.bfloat16 seed 0: gather 4.088e-03 kernel 3.842e-03
+boundaries torch.bfloat16 seed 1: gather 4.204e-03 kernel 3.894e-03
+boundaries torch.bfloat16 seed 2: gather 3.766e-03 kernel 3.766e-03
+boundaries torch.bfloat16 seed 3: gather 4.368e-03 kernel 3.876e-03
+boundaries torch.bfloat16 seed 4: gather 3.602e-03 kernel 3.602e-03
+boundaries torch.bfloat16: worst kernel/gather error ratio 1.00
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[long-fp32] long torch.float32 seed 0: gather 5.159e-07 kernel 2.844e-07
+long torch.float32 seed 1: gather 8.857e-07 kernel 2.856e-07
+long torch.float32 seed 2: gather 6.913e-07 kernel 2.624e-07
+long torch.float32 seed 3: gather 6.244e-07 kernel 3.372e-07
+long torch.float32 seed 4: gather 5.580e-07 kernel 3.198e-07
+long torch.float32: worst kernel/gather error ratio 0.57
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[long-bf16] long torch.bfloat16 seed 0: gather 6.580e-03 kernel 6.580e-03
+long torch.bfloat16 seed 1: gather 4.645e-03 kernel 4.480e-03
+long torch.bfloat16 seed 2: gather 5.889e-03 kernel 3.906e-03
+long torch.bfloat16 seed 3: gather 5.261e-03 kernel 3.831e-03
+long torch.bfloat16 seed 4: gather 6.943e-03 kernel 6.943e-03
+long torch.bfloat16: worst kernel/gather error ratio 1.00
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[ragged-fp32] ragged torch.float32 seed 0: gather 1.180e-06 kernel 3.697e-07
+ragged torch.float32 seed 1: gather 8.043e-07 kernel 4.106e-07
+ragged torch.float32 seed 2: gather 1.146e-06 kernel 4.019e-07
+ragged torch.float32 seed 3: gather 1.056e-06 kernel 4.185e-07
+ragged torch.float32 seed 4: gather 8.282e-07 kernel 4.226e-07
+ragged torch.float32: worst kernel/gather error ratio 0.51
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[ragged-bf16] ragged torch.bfloat16 seed 0: gather 7.704e-03 kernel 7.704e-03
+ragged torch.bfloat16 seed 1: gather 7.288e-03 kernel 7.288e-03
+ragged torch.bfloat16 seed 2: gather 7.929e-03 kernel 7.696e-03
+ragged torch.bfloat16 seed 3: gather 8.264e-03 kernel 7.361e-03
+ragged torch.bfloat16 seed 4: gather 7.727e-03 kernel 7.727e-03
+ragged torch.bfloat16: worst kernel/gather error ratio 1.00
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[single-fp32] single torch.float32 seed 0: gather 6.207e-07 kernel 1.162e-07
+single torch.float32 seed 1: gather 5.135e-07 kernel 1.983e-07
+single torch.float32 seed 2: gather 8.799e-07 kernel 1.646e-07
+single torch.float32 seed 3: gather 7.081e-07 kernel 1.356e-07
+single torch.float32 seed 4: gather 4.461e-07 kernel 1.559e-07
+single torch.float32: worst kernel/gather error ratio 0.39
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[single-bf16] single torch.bfloat16 seed 0: gather 1.891e-03 kernel 1.891e-03
+single torch.bfloat16 seed 1: gather 1.364e-03 kernel 1.126e-03
+single torch.bfloat16 seed 2: gather 1.254e-03 kernel 9.757e-04
+single torch.bfloat16 seed 3: gather 1.851e-03 kernel 1.851e-03
+single torch.bfloat16 seed 4: gather 2.200e-03 kernel 1.778e-03
+single torch.bfloat16: worst kernel/gather error ratio 1.00
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_never_reads_slots_no_sequence_owns[fp32] PASSED
+tests/test_paged_attention_gpu.py::test_kernel_never_reads_slots_no_sequence_owns[bf16] PASSED
+tests/test_paged_attention_gpu.py::test_padded_entries_pointing_at_an_owned_block_zero_are_not_read PASSED
+tests/test_paged_attention_gpu.py::test_kernel_accepts_the_queries_the_model_produces FAILED
+tests/test_paged_attention_gpu.py::test_kernel_rejects_what_it_cannot_do PASSED
+
+=================================== FAILURES ===================================
+______________ test_kernel_accepts_the_queries_the_model_produces ______________
+
+    def test_kernel_accepts_the_queries_the_model_produces() -> None:
+        # The model hands over q as a transposed view, [batch, heads, 1, head_dim] with unusual strides.
+        case = make_case(CASES["ragged"], device="cuda", seed=2)
+        view = case.q.transpose(1, 2).contiguous().transpose(1, 2)  # same values, [B,1,H,D] storage
+>       assert view.shape == case.q.shape and not view.is_contiguous()
+E       AssertionError: assert (torch.Size([10, 32, 1, 64]) == torch.Size([10, 32, 1, 64])
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           torch.Size([10, 32, 1, 64]) and not True)
+E        +  where True = <built-in method is_contiguous of Tensor object at 0x7223945a9400>()
+E        +    where <built-in method is_contiguous of Tensor object at 0x7223945a9400> = tensor([[[[-1.2931, -0.4307,  1.5809,  ...,  0.0415, -0.8075, -1.2153]],\n\n         [[-1.4220,  0.6453, -0.1333,  ..., -1.6427,  1.9137, -0.1629]],\n\n         [[-0.6281, -1.6020,  0.0941,  ..., -0.0766,  0.8596,  0.3751]],\n\n         ...,\n\n         [[-0.7276,  0.8892,  0.3270,  ...,  0.9714,  0.3857,  1.0831]],\n\n         [[-0.6384,  1.9286, -0.4287,  ...,  0.1949, -0.6981, -0.0876]],\n\n         [[ 0.2633, -0.6691, -0.0172,  ..., -0.6945, -0.1892, -0.9030]]],\n\n\n        [[[-0.4369,  1.2917, -0.3708,  ...,  0.8905,  0.3793,  1.0878]],\n\n         [[ 1.4536,  0.9173,  0.0797,  ..., -1.0837,  0.6223, -1.1685]],\n\n         [[ 0.4970,  0.7462,  0.4590,  ...,  0.0879, -1.9652, -0.4766]],\n\n         ...,\n\n         [[ 0.4521, -0.9087, -0.7139,  ..., -0.4970, -0.7730,  0.1881]],\n\n         [[ 0.8311, -1.2173, -0.5563,  ..., -0.3880,  0.5331, -0.1105]],\n\n         [[-0.0234,  0.6993, -0.8715,  ...,  1.4155,  0.0339,  0.8670]]],\n\n\n        [[[ 0.7360, -0.4722, -0.1424,  ..., -1.4378,  2.8364,  0.7826]],\n\n         [[ 1.5417, -0.8587, -1.7120,  ...,  1.2096, -2.9257,  0.4940]],\n\n         [[-0.0329,  1.1730,  0.4196,  ...,  0.5895, -0.6964, -0.5214]],\n\n         ...,\n\n         [[-1.4300, -0.5757, -0.7489,  ...23, -0.0177]],\n\n         ...,\n\n         [[ 0.9171,  0.4155,  0.4027,  ..., -1.9101,  1.6802, -0.4248]],\n\n         [[-0.6583, -1.9155, -0.0317,  ...,  0.7230,  0.2077, -1.7229]],\n\n         [[-0.6554,  0.0988, -0.3359,  ...,  0.5826,  0.4258,  0.5212]]],\n\n\n        [[[ 0.6179,  0.4299, -0.6737,  ...,  0.9712, -0.3287, -0.7743]],\n\n         [[-0.7483, -1.9548,  1.5903,  ..., -1.9136,  0.3360,  0.0678]],\n\n         [[ 1.3795, -1.5160, -1.8360,  ..., -1.1346,  0.4669,  0.2135]],\n\n         ...,\n\n         [[ 1.8739,  0.4381, -1.5268,  ...,  1.5077, -0.5450,  0.0999]],\n\n         [[-0.9773, -1.2892,  2.4784,  ...,  0.5741,  1.4190,  0.6439]],\n\n         [[-1.5471,  1.1647, -1.8128,  ..., -2.6419, -1.7462, -1.2633]]],\n\n\n        [[[-0.0187,  0.7154, -0.1223,  ..., -0.0753,  0.5075, -1.7648]],\n\n         [[ 0.7244, -0.5993, -1.7264,  ...,  0.8225, -0.4502,  1.7738]],\n\n         [[ 0.3736,  0.0401, -0.3627,  ..., -0.6865, -0.5919, -0.3549]],\n\n         ...,\n\n         [[ 0.5412,  1.1755, -0.6576,  ..., -1.2473,  1.5013, -0.1066]],\n\n         [[ 0.7769,  0.3182,  0.7657,  ..., -0.6991, -1.1536,  1.4818]],\n\n         [[ 1.1881,  0.8452,  1.7418,  ..., -0.2266,  0.6417, -0.9324]]]],\n       device='cuda:0').is_contiguous
+
+tests/test_paged_attention_gpu.py:106: AssertionError
+=============================== warnings summary ===============================
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[batch60-fp32]
+  <home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+    warn_once(FP_FUSION_DEFAULT_WARNING)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_paged_attention_gpu.py::test_kernel_accepts_the_queries_the_model_produces
+=================== 1 failed, 14 passed, 1 warning in 5.90s ====================

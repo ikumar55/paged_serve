@@ -1373,8 +1373,25 @@ estimates are recorded here as if they were results.
     length). GPU tests, to be run by hand on the machine: `tests/test_paged_attention_gpu.py`
     (gate (a)(i): error at most twice the gather path's in fp32 and bf16 over five shapes and
     five seeds, NaN-poison, owned block 0, strided queries, rejected inputs).
-  - Not yet known: whether the kernel compiles, whether it meets the 2x error gate (its `exp` is
-    the fast Triton one), and anything about speed.
+  - Not yet known at that point: whether the kernel compiles, whether it meets the 2x error gate
+    (its `exp` is the fast Triton one), and anything about speed.
+- **GPU session 1 (2026-11-24, same Capsule RTX 5090 machine as every GPU result in this
+  project; torch 2.15.0+cu132, Triton 3.9.0, nobody else on the machine; the determinism
+  self-test passed first; machine monitor on; code = commit `6b3aeba`; `deploy/gpu_d025_kernel.sh`;
+  `results/d025-kernel-gate.log`, `results/selftest-before-d025-kernel-gate.json`,
+  `results/machine-monitor-d025-kernel-gate.jsonl`).** The kernel compiled at the first try.
+  Gate (a)(i), error against the float64 reference, maximum over five random draws per shape,
+  five shapes (boundaries 1, 16, 17, 32 tokens; a ragged batch of 10 up to 1,049 tokens; long
+  sequences to 2,185 tokens; a single sequence; a batch of 60): **fp32** the kernel's error is
+  0.39 to 0.57 times the gather path's (for example 2.4e-7 against 9.6e-7 at batch 60), and
+  **bf16** it is 0.98 to 1.00 times (the same, since the output's rounding to bf16 dominates);
+  all 10 shape and dtype cells are within the 2x limit. The NaN-poison test (every slot no
+  sequence owns set to NaN, block 0 included) and the owned-block-0 test passed, and the input
+  checks passed. **One of the 15 GPU tests failed, and it was a bug in the test, not in the
+  kernel:** it built a "strided query" with a transpose of a size-1 dimension, which is still a
+  packed tensor, and asserted that it was not. The log of that run is kept as it was (write-once);
+  the test was fixed (a slice of a wider tensor, a genuinely strided query) and is re-run in
+  session 2. The gate on the scheduler (a)(ii) is not run yet, and nothing is known about speed.
 - **Measured effect:** none yet.
 
 ## Open verification items
