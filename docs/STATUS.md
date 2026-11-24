@@ -92,8 +92,11 @@ shows the step is launch-bound at small batches, and at saturation the engine th
 inside the scheduler step 97 to 98% of the time, a step about 2.5 times slower than the
 fixed-length profile. The follow-up (D-021) explains most of that: offline, on the server's own
 requests, the step costs 0.38 ms per token, twice the fixed-length figure, so the real length mix
-(padding, longer contexts) is the main cause; the prefix cache costs under 1%; the server adds a
-further 19 to 31% that is not explained. Spread across seeds is 2 to 16%. One GPU, one model, one
+is the main cause; the prefix cache costs under 1%; the server adds a further 19 to 31% that is
+not explained. **Profiled on that mix, the saturated decode step is GPU-bound**: 14.6 to 25.4 ms,
+the GPU busy 88 to 93% of it, attention plus the gather 84% of GPU time, and the padded batch
+handles 3.7 times the positions it needs; so CUDA graphs can give at most 1.07 to 1.14 times
+(D-020 is parked) and the next speed work is attention that reads the blocks in place (D-025). Spread across seeds is 2 to 16%. One GPU, one model, one
 workload shape. Tables: `results/variation-*-rtx5090.md`.
 
 **Prefix cache (shared-prefix workload, 8 x 1024-token prefixes):** the engine's hit rate was 89 to

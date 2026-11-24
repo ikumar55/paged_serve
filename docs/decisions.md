@@ -147,8 +147,11 @@ estimates are recorded here as if they were results.
   in the saturation runs one scheduler step takes 25 to 30 ms (batch 64) while the engine thread
   spends 97 to 98% of its time inside the step (D-021, pass 5), so the extra time is inside the
   scheduler step under the real workload (its length mix, the prefix-cache bookkeeping, the
-  prefills), not in routing tokens or an idle thread. This profile, with fixed 256-token
-  sequences, therefore describes the step at low load and small batches best. If every launch gap were
+  prefills), not in routing tokens or an idle thread. **A later profile on the real length mix
+  (D-020) shows this table misleads for the saturated engine:** with sequences of mixed lengths
+  the step is 14.6 to 25.4 ms, the GPU is busy 88 to 93% of it, and attention plus the gather are
+  84% of GPU time, so the saturated step is GPU-bound, not launch-bound. This profile, with fixed
+  256-token sequences, describes the step at low load and small batches only. If every launch gap were
   removed (CUDA graphs) the step could not fall below its GPU busy time: **4.8 ms at batch 32, 2.1
   times faster at most**, an upper bound that ignores graph replay cost and the dynamic shapes of
   the gather. (2) It is not only launch overhead. The GPU busy time alone (4.1 ms at batch 8, 4.8
@@ -1026,8 +1029,10 @@ estimates are recorded here as if they were results.
 
 ### D-020 Speed experiment: CUDA graphs for the decode step (PLANNED, criteria fixed in advance)
 
-- **Status:** planned 2026-11-24; **nothing is implemented.** This entry is written before any code
-  so that the success test cannot move after the result is seen.
+- **Status:** planned 2026-11-24; **PARKED the same day after its prerequisite measurement (see
+  below): on the real length mix the step is GPU-bound and graphs can give at most 1.07 to 1.14
+  times. Nothing was implemented; D-025 comes first and this is re-tested after it.** This entry
+  was written before any code so that the success test cannot move after the result is seen.
 - **Hypothesis:** D-003's profile found the decode step launch-bound (about 950 kernels per step,
   the GPU idle for 52% of a batch-32 step). Capturing the step in a CUDA graph per bucket of batch
   size and padded width removes the launch gaps, so the step should approach its GPU busy time
@@ -1079,6 +1084,33 @@ estimates are recorded here as if they were results.
   run as written only as a bounded, expected-partial experiment, with the fused-attention work
   ranked above it; if the GPU is still idle more than 45% of the step, graphs are worth running
   first.
+- **Result of the prerequisite measurement (`results/profile-mix-rtx5090.json`, four seeds, a
+  batch of 60, the same session as the fixed-length baseline, machine monitor quiet):**
+
+  | | wall ms/step | GPU busy ms/step | GPU idle | attention + gather/copy | padded work |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | fixed 256 tokens, batch 64 (this session) | 7.81 | 6.23 | 20% | 56% | x1.0 |
+  | real mix, seed 0 | 20.80 | 18.82 | 10% | 85% | x3.79 |
+  | real mix, seed 1 | 25.40 | 23.63 | 7% | 88% | x4.95 |
+  | real mix, seed 2 | 19.65 | 17.89 | 9% | 85% | x3.74 |
+  | real mix, seed 3 | 14.61 | 12.80 | 12% | 78% | x2.30 |
+
+  Prediction (1), GPU idle under 35%: **met by a wide margin** (7 to 12%, mean 9%). Prediction
+  (2), attention plus gather at least 60% of GPU time: **met** (78 to 88%, mean 84%). So on the
+  real length mix **the decode step is GPU-bound, not launch-bound**: it takes 2.6 times as long
+  as the fixed-length step (20.1 against 7.8 ms), the extra time is almost entirely attention and
+  the gather, and the padded batch handles 2.3 to 4.95 times (mean 3.7) the token positions it
+  needs (mean context 443 tokens, longest 1,049 to 2,185). Eliminating every launch gap would
+  speed the step by only **1.07 to 1.14 times**, so by the interpretation fixed above **CUDA
+  graphs cannot reach this entry's 25% end-to-end bar and D-020 is parked**, not run; the
+  attention and gather path is the larger lever (D-025). If attention and gather cost were
+  proportional to the positions actually needed, the step could fall from about 18 ms of GPU time
+  to about 7 (an estimate, not a measurement); once that is done the idle share will rise and
+  graphs become worth re-testing. Two caveats from the same session: the GPU busy time of the
+  fixed-length batch 64 reproduced (6.23 against 6.24 ms) but its wall time did not (7.81 against
+  10.20 ms two sessions ago), so the CPU-bound part of a step varies by about a quarter between
+  sessions on this shared host, which is why every baseline here is re-measured in the same
+  session; and the profile is of one step in isolation, not of a running server.
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
   saturation, the server path and prefill are (see D-021), which is a result. (b) fails: graphs
   do not remove the launch overhead in this design. (a) fails: revert. All pass: record the gain
@@ -1265,6 +1297,51 @@ estimates are recorded here as if they were results.
   the timing model is missing a term, and the entry records which.
 - **Measured effect:** none yet.
 
+### D-025 Decode attention that reads the blocks in place (PLANNED, criteria fixed in advance)
+
+- **Status:** planned 2026-11-24; **nothing is built.** Follows from D-020's prerequisite
+  measurement: on the real length mix the decode step is GPU-bound, attention plus the gather are
+  84% of GPU time, and the padded batch does 3.7 times the work it needs.
+- **Hypothesis:** a decode-attention kernel (Triton, the stretch goal of D-003) that, for each
+  sequence, walks that sequence's own block table and reads its keys and values in place with an
+  online softmax, so there is no gathered copy and no padding to the longest sequence, makes the
+  cost of attention proportional to the positions actually needed. The real-mix step should then
+  fall from about 20 ms (18 ms of GPU time) toward 8 ms.
+- **Design constraints:** an opt-in `--paged-attention-kernel` server flag (the gather path stays
+  the default, so every recorded result stays reproducible); GPU only, with the gather path as the
+  CPU fallback; the decode step only (one new token per sequence), prefill unchanged; grouped-query
+  attention as the model uses it (32 query heads over 8 key-value heads, head size 64), bf16 and
+  fp32, block size 16; it reads the pool tensors directly and the same block tables and lengths the
+  gather path builds, after the new token's key and value are written, so no cache code changes.
+  Padded block-table entries (they point at block 0) must never be read as data. If the kernel
+  proves infeasible in the time box, the fallback is splitting a decode batch into a few
+  length-sorted groups, which is not part of this plan.
+- **Success criteria (fixed now):** (a) *correctness gates, all required:* (i) against a float64
+  reference on random data with ragged lengths (including 1, 16, 17 and 32 tokens, scrambled block
+  tables, padded entries pointing at block 0): the kernel's error is at most twice the gather
+  path's error, in fp32 and in bf16; (ii) `bench.scheduler_eval` with the flag, fp32 on the
+  frozen prompts 50 of 50 identical in all three configurations, the shared-prefix evaluation
+  (cache hits) fp32 50 of 50, and in bf16 every divergence within one bf16 logit step (0.125);
+  (iii) the CPU suite passes and the GPU kernel tests pass on the box; (iv) a server run with zero
+  failed requests. (b) *Step time:* on the real-mix profile (four seeds, batch 60), baseline and
+  flag interleaved in one session, the median wall time at least 40% lower on average and at least
+  30% lower on every seed. (c) *End to end (the claim):* engine batch 64 at 32 req/s offered, four
+  seeds, baseline and flag interleaved within each seed in one session, as the paired per-seed
+  ratio of delivered throughput: mean at least 1.30 and every seed at least 1.15.
+- **Expected before building:** if attention and gather become proportional to the positions
+  needed, GPU time per step falls from about 18 ms to 7 to 9 ms. End to end the gain is limited by
+  what is not attention: the server's unexplained remainder (about a fifth to a quarter of the step
+  cost, D-021) and the one-at-a-time prefills (16 to 18% of the offline time), so 1.3 to 1.8 times
+  is predicted; the 1.30 bar is inside that range and is not a foregone conclusion.
+- **Interpretation, fixed now:** (b) passes and (c) fails: the remaining time is prefill and the
+  server, and D-021's remainder and the prefills are next. (b) fails: the kernel is inefficient (for
+  example one program per sequence and head leaves the GPU underfilled); record the profile and
+  the kernel's achieved memory bandwidth against the card's, and say so. (a) fails: fix it or
+  revert; nothing is claimed. Whatever the outcome, D-020 (graphs) is re-tested afterwards, since a
+  shorter attention step raises the launch-overhead share.
+- **Time box:** about two working days and three GPU sessions.
+- **Measured effect:** none yet.
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~
@@ -1303,3 +1380,4 @@ Design ideas taken from public papers and documentation; no code was copied.
 | 2026-11-24 | vLLM against the engine at saturation, RTX 5090, standard workload, offered above capacity (engine 32 req/s batch 64, vLLM 64 req/s with 32 sequences), four seeds paired (D-019) | Delivered throughput, req/s, mean (min to max) | 14.20 (13.22 to 15.99) (engine) | 59.63 (58.73 to 60.78) (vLLM), 4.22 times the engine per seed (3.71 to 4.51) | `results/saturation-rtx5090.md`, `bench/saturation_report.py`, `deploy/gpu_pass5.sh` |
 | 2026-11-24 | CUDA graphs disabled in vLLM (`--enforce-eager`), same workload and rate, two seeds (D-019) | Delivered throughput at 64 req/s offered, req/s | 59.5 (vLLM default, seeds 0 and 1) | 29.3 (eager: 29.01 and 29.56); inter-token latency 3 ms to 6.5 to 7.1 ms | `results/sat-vllm-eager-rtx5090-seed{0,1}/`, `deploy/gpu_pass5.sh` |
 | 2026-11-24 | Scheduler cost per generated token offline on the server's own requests (real length mix) against fixed 256-token sequences, batch 64, prefix cache on (D-021) | ms per token, mean of 4 seeds | 0.187 (fixed lengths) | 0.382 (real mix), 2.04 times; the prefix cache adds 0.5 to 0.8% | `results/offline-workload-rtx5090.json`, `deploy/gpu_offline_workload.sh` |
+| 2026-11-24 | Decode step on the real length mix against fixed 256-token sequences, batch 60 to 64, same session, RTX 5090 (D-020 prerequisite) | Wall ms per step and GPU idle share | 7.81 ms, 20% idle (fixed lengths, batch 64) | 20.1 ms mean (14.6 to 25.4), 9% idle (7 to 12%); attention plus gather 84% of GPU time; padded work x3.7 | `results/profile-mix-rtx5090.json`, `deploy/gpu_mix_profile.sh` |
