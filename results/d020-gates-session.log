@@ -1,0 +1,12 @@
+== 2026-11-24T21:02:41Z d020-gates start; gpu: 0 %, 2 MiB
+== 2026-11-24T21:02:41Z code installed, commit 0aa96e002f5e63bc8c7552f845223716b3137303
+== 2026-11-24T21:02:49Z self-test exit 0
+SKIPPED [1] tests/test_paged_attention.py:196: checks the no-GPU message
+29 passed, 1 skipped in 2.71s
+== 2026-11-24T21:02:56Z graph GPU tests exit 1
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_cuda_graph_gpu.py::test_padded_steps_leave_real_rows_and_live_blocks_bit_equal
+==================== 1 failed, 1 passed, 1 warning in 2.54s ====================
+== 2026-11-24T21:02:56Z STAGE-FAILED graph GPU tests: not running the evaluations

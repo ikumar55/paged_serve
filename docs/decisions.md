@@ -1146,6 +1146,42 @@ estimates are recorded here as if they were results.
     padding rows) and record the new profile. (b) passes and (c) fails: the rest of the server
     (prefill, scheduling) dominates, which is the next item. (b) fails: capture does not remove
     the launch overhead in this design (or the idle time is not launch gaps); record the profile.
+- **Build and first GPU result of the re-test (2026-11-24; `engine/cuda_graph.py`, opt-in
+  `--cuda-graphs` with `--paged-attention-kernel`; commit `0aa96e0`; results
+  `results/d020-gates-gpu-tests.log`, `results/d020-gates-session.log`).** Built: static
+  buffers, batch buckets (1, 2, 4, 8 and steps of 8 to the maximum batch), one captured graph per
+  bucket, a scratch block reserved from the pool for padding rows, a fixed table width of 256
+  blocks with eager fallback (counted) for wider steps, and the rotary frequency copy cached per
+  device (a host-to-device copy cannot be captured; the numbers are unchanged). 13 CPU tests (the
+  capture-off path) catch every deliberate breakage of the code (10 of 10 after one test was
+  added for the survivor). **On the GPU, the real capture worked at the first attempt, and a
+  captured step with no padding is bit-equal to the eager kernel path in fp32 (that test
+  passed).** The second GPU test, which I had written to demand bit equality for padded steps,
+  **failed**: over the eight steps (6, 6, 5, 4, 3, 3, 2, 1 real rows, buckets 2, 4, 8), seven were
+  bit-equal to the eager run and the last, **one real row padded to a bucket of two, differed by
+  1.8e-7** in the fp32 logits (a few ulps). That test aborted at that step, so the comparison of
+  the live blocks did not run in that session. The session script stopped there by design and
+  ran none of the scheduler evaluations.
+  - *Reading.* A batch of one against a batch of two is a different matrix shape, and cuBLAS can
+    choose a different kernel, hence a different accumulation order, for a different shape; so
+    this looks like batch-shape dependence of eager PyTorch, not padding rows contaminating real
+    rows. That is a hypothesis; the test added below checks it.
+  - **Amendment 3, POST-HOC (written after seeing that result, before any further graph
+    result).** Criterion (a)(iv) said the real rows' logits must be "unchanged when padding rows
+    are added"; my test read that as bit-for-bit, and the one-row case shows that under that
+    reading the criterion fails for a reason that is not contamination. The criterion is
+    therefore split, and this split is a **post-hoc choice, labelled so**: (iv-a) a captured
+    step without padding is bit-equal to the eager kernel path in fp32 (passed); (iv-b) with
+    padding, real-row logits and every live block are within 1e-6 of the eager run at the real
+    batch size (fp32 noise), and the number of bit-equal steps is reported; (iv-c) the padding
+    rows cannot influence real rows at all: with the scratch block set to NaN in one run, the
+    real rows' logits and all live blocks are bit-identical to a run with its natural contents;
+    (iv-d) eager row 0 at batch 1 against batch 2, with no graph, differs by no more than the
+    same noise (this documents the cause). Everything else in amendment 2 stands; in particular
+    the end-to-end criterion (ii), the graph path's tokens identical to the eager kernel path's
+    (equal output hashes), is **unchanged and still strict**, and, since the batch shape does
+    reach the numerics, it may fail for the same reason; if it does, that is recorded as a
+    failure of (a) and not explained away.
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
   saturation, the server path and prefill are (see D-021), which is a result. (b) fails: graphs
   do not remove the launch overhead in this design. (a) fails: revert. All pass: record the gain

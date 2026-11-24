@@ -11,7 +11,7 @@ ENGINE_PY="$PAGEDSERVE_WORK/venvs/pagedserve/bin/python"
 MODEL=models/Llama-3.2-1B-Instruct
 FROZEN=results/greedy-eval-rtx5090-bf16.json
 log() { echo "== $(date -u +%FT%TZ) $*"; }
-TAG=d020-gates
+TAG=${TAG:-d020-gates}
 for f in results/$TAG-gpu-tests.log results/selftest-before-$TAG.json \
          results/machine-monitor-$TAG.jsonl; do
   [ -e "$f" ] && { log "STAGE-FAILED $f exists (write-once)"; exit 1; }

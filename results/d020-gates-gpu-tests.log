@@ -1,0 +1,41 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0 -- <home>/pagedserve_work/venvs/pagedserve/bin/python
+rootdir: <home>/pagedserve_work/paged_serve
+configfile: pyproject.toml
+plugins: anyio-4.16.0
+collecting ... collected 2 items
+
+tests/test_cuda_graph_gpu.py::test_a_captured_step_without_padding_is_bit_equal_to_eager PASSED
+tests/test_cuda_graph_gpu.py::test_padded_steps_leave_real_rows_and_live_blocks_bit_equal FAILED
+
+=================================== FAILURES ===================================
+_________ test_padded_steps_leave_real_rows_and_live_blocks_bit_equal __________
+
+    def test_padded_steps_leave_real_rows_and_live_blocks_bit_equal() -> None:
+        model = make_model()
+        pool_a, caches_a = prefilled(model, 6)
+        pool_b, caches_b = prefilled(model, 6)
+        decoder = CudaGraphDecoder(model, pool_b, kernel(), 8, buckets=[2, 4, 8])  # type: ignore[arg-type]
+        generator = torch.Generator().manual_seed(8)
+        worst = 0.0
+        for count in (6, 6, 5, 4, 3, 3, 2, 1):  # the batch shrinks, so the padding changes each time
+            tokens = torch.randint(0, CFG.vocab_size, (count, 1), generator=generator).cuda()
+            expected = eager(model, caches_a[:count], tokens)
+            got = graphed(decoder, caches_b[:count], tokens)
+            worst = max(worst, (got - expected).abs().max().item())
+>           assert torch.equal(expected, got), (count, worst)
+E           AssertionError: (1, 1.7881393432617188e-07)
+E           assert False
+E            +  where False = <built-in method equal of type object at 0x7b9d8eccc2e0>(tensor([[[-0.3061,  0.3749,  0.1373, -0.6477,  0.5994,  0.4468, -0.0341,\n           1.0108, -0.1894, -0.0680,  0.0083, -0.3923,  0.1271,  0.1624,\n          -0.3927, -0.0357, -0.1431,  0.2880, -0.0852,  0.3703, -1.0145,\n           1.1973,  0.1736, -0.0076,  0.6336, -0.1464, -0.2340,  0.1347,\n          -0.4253,  0.1873,  0.1308, -0.0090,  0.1389,  0.2509, -0.6274,\n          -0.3400, -0.4066,  0.0812,  0.6373,  0.1512,  0.0526, -0.0919,\n          -0.3643, -0.5266, -0.5938, -0.1886, -0.3560,  0.3994,  0.6802,\n           0.2448, -0.1927, -0.1449, -0.7447, -0.2366,  0.1771,  0.0614,\n           0.3011,  0.1487, -0.1027,  0.6181, -0.2604, -0.4771,  0.0231,\n           0.9388, -0.1515,  0.7019,  0.0911, -0.0912, -0.6380, -0.2598,\n           0.0767,  0.1624,  0.2631, -0.4664, -0.1697, -0.3409,  0.6089,\n           0.0458,  0.2413, -0.7925, -0.9846,  0.5122,  0.1590, -0.2955,\n           0.1260, -0.2567, -0.0876, -0.2700,  0.6396, -0.5321, -0.4692,\n           0.7291,  0.1596,  0.2880,  0.2534, -0.4440,  0.1199, -0.0554,\n           0.1756,  0.4839,  0.4847,  0.2805, -0.3306, -0.2143,  0.1987,\n           0.2359,  0.3476, -0.5136,  0.0551, -0.5609, -0.2040,  0.0623,\n          -0.0409, -0.2482, -0.3254,  0.0470, -0.5308, -0.3869,  0.0385,\n          -0.8369, -0.7965,  0.1038,  0.2745,  0.5981,  0.1290, -0.1393,\n           0.3236,  0.6283]]], device='cuda:0'), tensor([[[-0.3061,  0.3749,  0.1373, -0.6477,  0.5994,  0.4468, -0.0341,\n           1.0108, -0.1894, -0.0680,  0.0083, -0.3923,  0.1271,  0.1624,\n          -0.3927, -0.0357, -0.1431,  0.2880, -0.0852,  0.3703, -1.0145,\n           1.1973,  0.1736, -0.0076,  0.6336, -0.1464, -0.2340,  0.1347,\n          -0.4253,  0.1873,  0.1308, -0.0090,  0.1389,  0.2509, -0.6274,\n          -0.3400, -0.4066,  0.0812,  0.6373,  0.1512,  0.0526, -0.0919,\n          -0.3643, -0.5266, -0.5938, -0.1886, -0.3560,  0.3994,  0.6802,\n           0.2448, -0.1927, -0.1449, -0.7447, -0.2366,  0.1771,  0.0614,\n           0.3011,  0.1487, -0.1027,  0.6181, -0.2604, -0.4771,  0.0231,\n           0.9388, -0.1515,  0.7019,  0.0911, -0.0912, -0.6380, -0.2598,\n           0.0767,  0.1624,  0.2631, -0.4664, -0.1697, -0.3409,  0.6089,\n           0.0458,  0.2413, -0.7925, -0.9846,  0.5122,  0.1590, -0.2955,\n           0.1260, -0.2567, -0.0876, -0.2700,  0.6396, -0.5321, -0.4692,\n           0.7291,  0.1596,  0.2880,  0.2534, -0.4440,  0.1199, -0.0554,\n           0.1756,  0.4839,  0.4847,  0.2805, -0.3306, -0.2143,  0.1987,\n           0.2359,  0.3476, -0.5136,  0.0551, -0.5609, -0.2040,  0.0623,\n          -0.0409, -0.2482, -0.3254,  0.0470, -0.5308, -0.3869,  0.0385,\n          -0.8369, -0.7965,  0.1038,  0.2745,  0.5981,  0.1290, -0.1393,\n           0.3236,  0.6283]]], device='cuda:0'))
+E            +    where <built-in method equal of type object at 0x7b9d8eccc2e0> = torch.equal
+
+tests/test_cuda_graph_gpu.py:107: AssertionError
+=============================== warnings summary ===============================
+tests/test_cuda_graph_gpu.py::test_a_captured_step_without_padding_is_bit_equal_to_eager
+  <home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+    warn_once(FP_FUSION_DEFAULT_WARNING)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_cuda_graph_gpu.py::test_padded_steps_leave_real_rows_and_live_blocks_bit_equal
+==================== 1 failed, 1 passed, 1 warning in 2.54s ====================
