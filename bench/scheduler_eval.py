@@ -37,6 +37,7 @@ from typing import Any
 
 import torch
 
+from engine.cuda_graph import CudaGraphDecoder
 from engine.paged_attention import DecodeAttention, resolve_kernel
 from engine.paged_cache import KVPool
 from engine.scheduler import LanguageModel, Scheduler
@@ -60,15 +61,25 @@ def run_scheduler(
     config: SchedulerConfig,
     dtype: torch.dtype,
     decode_attention: DecodeAttention | None = None,
+    cuda_graphs: bool = False,
 ) -> tuple[list[list[int]], dict[str, Any]]:
     """Serve every prompt to ``n_tokens`` new tokens; returns the outputs and scheduler counters."""
-    pool = KVPool(model.cfg, config.num_blocks, BLOCK_SIZE, dtype, model.device)
+    # the graph decoder keeps one block as scratch; one more keeps the usable capacity equal
+    pool = KVPool(
+        model.cfg, config.num_blocks + (1 if cuda_graphs else 0), BLOCK_SIZE, dtype, model.device
+    )
+    decoder = None
+    if cuda_graphs:
+        if decode_attention is None:
+            raise ValueError("CUDA graphs need the decode-attention kernel")
+        decoder = CudaGraphDecoder(model, pool, decode_attention, config.max_batch_size)
     scheduler = Scheduler(
         model,
         pool,
         max_batch_size=config.max_batch_size,
         enable_prefix_caching=config.prefix_caching,
         decode_attention=decode_attention,
+        graph_decoder=decoder,
     )
     for index, ids in enumerate(prompts):
         scheduler.add_request(index, list(ids), n_tokens)
@@ -219,7 +230,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="decode attention reads the KV blocks in place with the Triton kernel (D-025); "
         "the default is the gather path",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--cuda-graphs",
+        action="store_true",
+        help="decode steps run as CUDA graphs (D-020; needs --paged-attention-kernel)",
+    )
+    args = parser.parse_args(argv)
+    if args.cuda_graphs and not args.paged_attention_kernel:
+        parser.error("--cuda-graphs needs --paged-attention-kernel")
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -299,7 +318,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     with torch.inference_mode():
         for config in configs_for(len(ids), args.tokens, max(len(p) for p in ids), args.max_batch):
             produced, stats = run_scheduler(
-                engine, ids, args.tokens, config, dtype, decode_attention
+                engine, ids, args.tokens, config, dtype, decode_attention, args.cuda_graphs
             )
             outputs[config.name] = produced
             comparison = compare(reference, produced)
@@ -352,6 +371,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "tokens": args.tokens,
             "block_size": BLOCK_SIZE,
             "paged_attention_kernel": args.paged_attention_kernel,
+            "cuda_graphs": args.cuda_graphs,
             "prompt_set": prompt_meta,
             "reference": "transformers generate, greedy, EOS disabled, same device and dtype",
         },

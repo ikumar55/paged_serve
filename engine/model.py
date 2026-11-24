@@ -66,10 +66,15 @@ class Rotary:
 
     def __init__(self, cfg: LlamaConfig) -> None:
         self.inv_freq = rope_inv_freq(cfg.head_dim, cfg.rope_theta, cfg.rope_scaling)
+        self._on_device: dict[torch.device, Tensor] = {}  # one copy per device, made once
 
     def __call__(self, positions: Tensor, dtype: torch.dtype) -> tuple[Tensor, Tensor]:
         """Return cos and sin tables of shape ``[batch, tokens, head_dim]`` for the positions."""
-        inv_freq = self.inv_freq.to(positions.device)
+        # Copied to the device once: a copy inside every forward pass would be a host-to-device
+        # transfer, which a CUDA graph cannot capture.
+        inv_freq = self._on_device.get(positions.device)
+        if inv_freq is None:
+            inv_freq = self._on_device[positions.device] = self.inv_freq.to(positions.device)
         angles = positions.unsqueeze(-1).float() * inv_freq
         table = torch.cat((angles, angles), dim=-1)
         return table.cos().to(dtype), table.sin().to(dtype)

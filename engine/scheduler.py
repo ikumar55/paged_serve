@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Collection
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import torch
 from torch import Tensor
@@ -30,6 +30,9 @@ from engine.kv_cache import KVCache
 from engine.paged_attention import DecodeAttention
 from engine.paged_cache import KVPool, PagedBatchCache, PagedSequenceCache
 from engine.prefix_cache import match_prefix
+
+if TYPE_CHECKING:
+    from engine.cuda_graph import CudaGraphDecoder
 
 
 class LanguageModel(Protocol):
@@ -90,6 +93,7 @@ class Scheduler:
         max_batch_size: int = 8,
         enable_prefix_caching: bool = True,
         decode_attention: DecodeAttention | None = None,
+        graph_decoder: CudaGraphDecoder | None = None,
     ) -> None:
         if max_batch_size <= 0:
             raise ValueError("max_batch_size must be positive")
@@ -98,6 +102,8 @@ class Scheduler:
         # None: the decode step gathers blocks into a padded tensor (the default, D-003).
         # A function: it reads the blocks in place instead (D-025).
         self.decode_attention = decode_attention
+        # None: decode steps run eagerly. A decoder (D-020): steps that fit run as CUDA graphs.
+        self.graph_decoder = graph_decoder
         self.max_batch_size = max_batch_size
         self.prefix_caching = enable_prefix_caching
         self.waiting: deque[Request] = deque()
@@ -190,7 +196,13 @@ class Scheduler:
 
     def stats(self) -> dict[str, int | float]:
         allocator = self.pool.allocator
+        graph = self.graph_decoder.stats if self.graph_decoder is not None else None
         return {
+            **(
+                {"graph_replays": graph.replays, "graph_eager_fallbacks": graph.eager_fallbacks}
+                if graph is not None
+                else {}
+            ),
             "steps": self.steps,
             "running": len(self.running),
             "waiting": len(self.waiting),
@@ -254,7 +266,13 @@ class Scheduler:
         last_tokens = torch.tensor(
             [[r.tokens()[-1]] for r in batch], dtype=torch.long, device=self.model.device
         )
-        logits = self.model(last_tokens, positions=step_cache.positions(), cache=step_cache)
+        decoder = self.graph_decoder
+        if decoder is not None and decoder.can_run(step_cache):
+            logits = decoder.run(step_cache, last_tokens)
+        else:
+            if decoder is not None:
+                decoder.stats.eager_fallbacks += 1
+            logits = self.model(last_tokens, positions=step_cache.positions(), cache=step_cache)
         next_tokens = logits[:, -1].argmax(dim=-1).tolist()
         result.decoded = len(batch)
         self.decode_steps += 1

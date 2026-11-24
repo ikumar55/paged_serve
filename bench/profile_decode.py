@@ -34,6 +34,7 @@ import torch
 from torch.profiler import ProfilerActivity, profile
 
 from bench.workload import LengthDist, WorkloadConfig, generate_workload
+from engine.cuda_graph import CudaGraphDecoder
 from engine.paged_attention import DecodeAttention, resolve_kernel
 from engine.paged_cache import KVPool
 from engine.scheduler import LanguageModel, Scheduler
@@ -143,6 +144,7 @@ def fill_batch(
     new_tokens: int,
     seed: int = 0,
     decode_attention: DecodeAttention | None = None,
+    graph_decoder: CudaGraphDecoder | None = None,
 ) -> Scheduler:
     """A scheduler with sequences prefilled and running, none finished.
 
@@ -157,6 +159,7 @@ def fill_batch(
         max_batch_size=batch_size,
         enable_prefix_caching=False,
         decode_attention=decode_attention,
+        graph_decoder=graph_decoder,
     )
     generator = torch.Generator().manual_seed(seed)
     vocab = model.cfg.vocab_size
@@ -197,6 +200,7 @@ def profile_batch(
     steps: int,
     warmup: int = 5,
     decode_attention: DecodeAttention | None = None,
+    graph_decoder: CudaGraphDecoder | None = None,
 ) -> dict[str, Any]:
     """One batch: wall time of decode steps, then kernel statistics of the same steps.
 
@@ -206,7 +210,13 @@ def profile_batch(
     """
     new_tokens = warmup + 2 * steps + 8  # nobody finishes while we measure
     scheduler = fill_batch(
-        model, pool, batch_size, prompt_len, new_tokens, decode_attention=decode_attention
+        model,
+        pool,
+        batch_size,
+        prompt_len,
+        new_tokens,
+        decode_attention=decode_attention,
+        graph_decoder=graph_decoder,
     )
     mix: dict[str, float] = {}
     if not isinstance(prompt_len, int):
@@ -453,10 +463,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--mix-attention",
-        choices=("gather", "triton", "both"),
+        choices=("gather", "triton", "both", "triton-graphs"),
         default="gather",
         help="decode attention of the --mix-seeds batches: the gather path, the Triton kernel "
-        "that reads the blocks in place (D-025), or both, interleaved within each seed",
+        "that reads the blocks in place (D-025), both, or the kernel without and then with CUDA "
+        "graphs (D-020), interleaved within each seed",
     )
     parser.add_argument(
         "--skip-profile",
@@ -521,16 +532,25 @@ def main(argv: list[str] | None = None) -> int:
             release_gpu_memory(args.device)
             keep("offline", offline[-1])
             print(f"offline, max batch {batch_size}: {offline[-1]['tokens_per_s']:.0f} tokens/s")
-        variants = {"gather": ["gather"], "triton": ["triton"], "both": ["gather", "triton"]}[
-            args.mix_attention
-        ]
+        variants = {
+            "gather": ["gather"],
+            "triton": ["triton"],
+            "both": ["gather", "triton"],
+            "triton-graphs": ["triton", "triton+graphs"],
+        }[args.mix_attention]
         kernels: dict[str, DecodeAttention | None] = {
-            name: None if name == "gather" else resolve_kernel(name) for name in variants
+            name: None if name == "gather" else resolve_kernel("triton") for name in variants
         }
         for seed in [int(x) for x in args.mix_seeds.split(",") if x]:
             lengths = sample_mix_lengths(standard_requests(seed), args.mix_batch, seed)
             for variant in variants:  # interleaved within a seed, so both see the same machine
                 pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
+                attention = kernels[variant]
+                decoder = (
+                    CudaGraphDecoder(model, pool, attention, len(lengths))
+                    if variant.endswith("+graphs") and attention is not None
+                    else None
+                )
                 mix_results.append(
                     {
                         **profile_batch(
@@ -539,13 +559,14 @@ def main(argv: list[str] | None = None) -> int:
                             batch_size=len(lengths),
                             prompt_len=lengths,
                             steps=args.steps,
-                            decode_attention=kernels[variant],
+                            decode_attention=attention,
+                            graph_decoder=decoder,
                         ),
                         "workload_seed": seed,
                         "attention": variant,
                     }
                 )
-                del pool
+                del pool, decoder
                 release_gpu_memory(args.device)
                 keep("mix", mix_results[-1])
                 m = mix_results[-1]

@@ -159,6 +159,23 @@ class PagedSequenceCache:
         return max(0, self.pool.allocator.blocks_for(num_tokens) - len(self.blocks))
 
 
+def write_new_tokens(
+    pool: KVPool, tables: Tensor, lengths: Tensor, layer: int, k_new: Tensor, v_new: Tensor
+) -> None:
+    """Write each sequence's new key and value at its next slot (``lengths`` tokens are cached).
+
+    ``k_new`` and ``v_new`` are ``[batch, kv_heads, 1, head_dim]``. Shared by the ordinary batch
+    cache and the static-buffer one a CUDA graph replays (``engine.cuda_graph``).
+    """
+    if k_new.shape[0] != tables.shape[0] or k_new.shape[2] != 1:
+        raise ValueError("a batch step takes exactly one new token per sequence")
+    rows = torch.arange(tables.shape[0], device=pool.device)
+    slot_blocks = tables[rows, lengths // pool.block_size]
+    slot_offsets = lengths % pool.block_size
+    pool.k[layer, slot_blocks, :, slot_offsets] = k_new[:, :, 0, :]
+    pool.v[layer, slot_blocks, :, slot_offsets] = v_new[:, :, 0, :]
+
+
 class PagedBatchCache:
     """A decode step over several sequences of different lengths, one new token each.
 
@@ -231,14 +248,7 @@ class PagedBatchCache:
         )
 
     def _write_new(self, layer: int, k_new: Tensor, v_new: Tensor) -> None:
-        if k_new.shape[0] != len(self.caches) or k_new.shape[2] != 1:
-            raise ValueError("a batch step takes exactly one new token per sequence")
-        block_size = self.pool.block_size
-        rows = torch.arange(len(self.caches), device=self.pool.device)
-        slot_blocks = self._tables[rows, self._lengths // block_size]
-        slot_offsets = self._lengths % block_size
-        self.pool.k[layer, slot_blocks, :, slot_offsets] = k_new[:, :, 0, :]
-        self.pool.v[layer, slot_blocks, :, slot_offsets] = v_new[:, :, 0, :]
+        write_new_tokens(self.pool, self._tables, self._lengths, layer, k_new, v_new)
 
     def attention_mask(self, new_tokens: int) -> Tensor:
         """``[batch, 1, 1, padded_len]``: each sequence sees its cached tokens and its new one."""

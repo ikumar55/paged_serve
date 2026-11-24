@@ -35,6 +35,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from engine.config import LlamaConfig
+from engine.cuda_graph import CudaGraphDecoder
 from engine.mock import MockModel, TimingModel
 from engine.paged_attention import DecodeAttention, resolve_kernel
 from engine.paged_cache import KVPool
@@ -264,6 +265,7 @@ def create_app(
         "max_batch_size": scheduler.max_batch_size,
         "block_size": scheduler.pool.block_size,
         "paged_attention_kernel": scheduler.decode_attention is not None,
+        "cuda_graphs": scheduler.graph_decoder is not None,
         **(info or {}),
     }
 
@@ -396,6 +398,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="decode attention reads the KV blocks in place with a Triton kernel instead of "
         "gathering them into a padded tensor (D-025; needs a GPU; the default is the gather path)",
     )
+    parser.add_argument(
+        "--cuda-graphs",
+        action="store_true",
+        help="run decode steps as CUDA graphs, one per batch-size bucket (D-020; needs "
+        "--paged-attention-kernel and a GPU; the default is eager)",
+    )
     mock = parser.add_argument_group("mock backend timing (placeholders, not measurements)")
     defaults = TimingModel()
     mock.add_argument("--mock-prefill-base-ms", type=float, default=defaults.prefill_base_ms)
@@ -413,6 +421,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.paged_attention_kernel and args.backend != "llama":
         raise SystemExit("--paged-attention-kernel needs the llama backend")
+    if args.cuda_graphs and not args.paged_attention_kernel:
+        raise SystemExit("--cuda-graphs needs --paged-attention-kernel")
     decode_attention: DecodeAttention | None = None
     if args.paged_attention_kernel:
         try:
@@ -458,12 +468,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if num_blocks < 1:
         raise SystemExit("--kv-cache-gb is too small for even one block")
     pool = KVPool(model.cfg, num_blocks, args.block_size, pool_dtype, pool_device)
+    graph_decoder = None
+    if args.cuda_graphs:
+        assert decode_attention is not None
+        graph_decoder = CudaGraphDecoder(model, pool, decode_attention, args.max_batch_size)
     scheduler = Scheduler(
         model,
         pool,
         max_batch_size=args.max_batch_size,
         enable_prefix_caching=not args.no_prefix_caching,
         decode_attention=decode_attention,
+        graph_decoder=graph_decoder,
     )
     app = create_app(
         scheduler,
