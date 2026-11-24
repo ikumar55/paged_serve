@@ -7,11 +7,12 @@ the two disagree, `decisions.md` is the record and this file is the map.
 
 Last updated: 2026-11-23, after the first three-way benchmark on a Capsule RTX 5090 machine (D-019):
 engine, Hugging Face static batching and vLLM, four workload seeds each, with the determinism
-self-test before every system. The numbers are in section 3 and D-019. Not yet done: the
-prefix-cache and shared-prefix workloads, profiling the engine's inter-token latency, and finding
-vLLM's ceiling (it was not saturated at 48 req/s). **A machine in Oxmiq's Capsule fleet still holds
+self-test before every system. A shared-prefix run (prefix cache on and off), a machine monitor and
+audit, and a monitored repeat of part of pass 2 followed. The numbers are in section 3 and D-019.
+Not yet done: profiling the engine's inter-token latency, finding vLLM's ceiling (it was not
+saturated at 48 req/s), and a second GPU class. **A machine in Oxmiq's Capsule fleet still holds
 project files (`~/pagedserve_work`, kept because more runs are plausible); the cleanup duty in
-section 6, item 13 applies.**
+section 6, item 13 applies. Nothing is pushed.**
 
 ## 1. The project
 
@@ -76,6 +77,18 @@ every rate tried, to 48 req/s (47.7), so its ceiling is unknown. The engine's in
 (9 to 11 ms in pass 1) is about three times vLLM's (2 to 3 ms); the likely cause (Python launch
 overhead, no CUDA graphs) is a prediction, not profiled. Spread across seeds is 2 to 16%. One GPU, one
 model, one workload shape. Tables: `results/variation-*-rtx5090.md`.
+
+**Prefix cache (shared-prefix workload, 8 x 1024-token prefixes):** the engine's hit rate was 89 to
+92% with the cache on; median time to first token fell 17 to 22% (32 against 41 ms at 4 req/s) and,
+where the engine is overloaded (16 req/s), throughput rose 11% (12.2 against 10.9). vLLM's median
+time to first token fell 24 to 39%. The absolute saving is only 8 to 14 ms (short prefill on this GPU).
+
+**Was the machine consistent?** A monitor now records other users' CPU, foreign GPU processes and
+GPU throttling (`bench/machine_monitor.py`, `bench/machine_audit.py`). Over 55 minutes other users'
+CPU peaked at 0.015 cores and nothing else touched the GPU; the 29 runs it covered audit clean. The
+earlier runs were not monitored, so part of pass 2 was repeated under it: 17 pairs agree to 1.3% on
+average (max 4.6%). The sweep's own contention flag is weak (six one-sample blips, cause unknown).
+`results/machine-audit-p3-p4.md`, `results/repro-vs-original-rtx5090.md`.
 
 D-017 chose an RTX 5060 Ti (16 GB) machine, validated the stack on it (greedy evaluation: 200 of
 200 identical, bf16) and never benchmarked there. Do not quote the A6000 numbers next to anything
@@ -243,10 +256,11 @@ session.
    provider is chosen, D-018 stays a draft and `docs/gpu-runbook.md` has no provider-specific steps.
 3. **(Mostly done 2026-11-23, on the Capsule RTX 5090 of D-019; nothing was rented and D-018 stays a
    draft.)** Set up, self-test, GPU and CPU tests, smoke run, greedy evaluation and the three-way
-   sweeps with four seeds are done and committed (`results/`, D-019). **Still to do:** write the
-   measured effects into D-003 to D-006 (D-019 holds them for now), the shared-prefix workloads
-   with the prefix cache on and off (D-005), vLLM at higher rates and the engine's batch sizes
-   beyond 64, and decide the fp32 test contract. The machine's directory is kept until these are
+   sweeps with four seeds, the shared-prefix runs and the monitored repeat are done and committed
+   (`results/`, D-019, with pointers in D-005 and D-006). **Still to do:** the measured effects in
+   D-003 and D-004 (paged cache and continuous batching; D-019 holds the comparisons), vLLM at
+   higher rates and the engine's batch sizes beyond 64, profiling the engine's inter-token latency,
+   and decide the fp32 test contract. The machine's directory is kept until these are
    done or dropped. Original text of this step follows.
    **The GPU session itself**, following `docs/gpu-runbook.md`: set up, record both environments,
    smoke test, then the HF baseline, engine and vLLM sweeps with several seeds, then reports. Write

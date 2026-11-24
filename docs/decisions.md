@@ -188,7 +188,12 @@ estimates are recorded here as if they were results.
   earlier, possibly in a different batch shape, so equality with an uncached run is expected to
   hold to rounding and not bit for bit; this was exact on the tiny fp32 model and has not been
   checked in bf16 or on the real weights. The hit rate on real traffic depends on the workload and
-  is unmeasured.
+  is unmeasured. **First GPU measurement (2026-11-23, RTX 5090, D-019):** on a shared-prefix
+  workload (8 prefixes of 1024 tokens, unequal popularity, about 64-token suffixes) the engine
+  reported a prefix hit rate of 89 to 92% with the cache on and 0 with it off; the median time to
+  first token fell by 17 to 22% at 4 and 8 req/s (32 against 41 ms, 38 against 46 ms) and the
+  delivered throughput at 16 req/s, where the engine is overloaded, rose by 11%. One workload
+  setting, one GPU, three seeds: D-019 has the table and its limits.
 
 ### D-006 Baselines: Hugging Face static batching and pinned vLLM
 
@@ -196,7 +201,9 @@ estimates are recorded here as if they were results.
 - **Decision:** (1) Hugging Face `generate` behind a static-batching wrapper; (2) vLLM at a pinned
   version, reported both at defaults and with matching features.
 - **Why:** The first shows the gain over naive serving; the second keeps the comparison honest.
-- **Measured effect:** not yet measured.
+- **Measured effect:** measured on one RTX 5090 on 2026-11-23: at 16 req/s offered Hugging Face
+  static batching delivered 9.0 req/s, this engine 14.4 and vLLM 15.8 (four seeds each); vLLM was
+  not saturated even at 48 req/s. Table, spread, limits and the machine checks are in D-019.
 
 ### D-007 Router policies: round-robin, least-outstanding, approximate and precise prefix-aware
 
@@ -805,8 +812,51 @@ estimates are recorded here as if they were results.
     any overloaded cell (the earlier A6000 runs spread 10 to 19%). Four runs were flagged contended (GPU busy before the load started) and are left out of
     the spreads: engine seed 1 at 8 req/s (both batch sizes, the same minutes), engine seed 2 at
     16 req/s batch 32, and Hugging Face pass 1 at batch 16, 8 req/s; the cause was not identified.
-  - **Limits.** One consumer GPU, one model, one workload shape, bf16 only; no prefix-cache or
-    shared-prefix workload yet; the Hugging Face best setting is at the edge of its grid
+  - **Shared-prefix workload, prefix cache on and off (pass 3).** Eight shared prefixes of 1024
+    tokens with unequal popularity (skew 1), unique suffixes of median 64 tokens, batch 32, three
+    seeds, a fresh server per run. This is one modelling choice, not "representative". Mean with
+    minimum to maximum; the engine reported a prefix hit rate of 89 to 92% with the cache on and 0
+    with it off.
+
+    | System, offered | Cache | Throughput req/s | TTFT p50 ms | TTFT p99 ms |
+    | --- | --- | --- | --- | --- |
+    | Engine, 4 | on / off | 3.94 / 3.93 | 32 (32 to 33) / 41 (41 to 41) | 67 / 78 |
+    | Engine, 8 | on / off | 7.81 / 7.74 | 38 (37 to 39) / 46 (46 to 47) | 89 / 109 |
+    | Engine, 16 (overloaded) | on / off | 12.17 (11.83 to 12.51) / 10.93 (10.74 to 11.16) | 8524 / 13143 | 16128 / 23940 |
+    | vLLM, 4 | on / off | 4.05 / 4.04 | 25 (24 to 26) / 33 (32 to 33) | 41 / 51 |
+    | vLLM, 8 | on / off | 8.08 / 8.07 | 24 (23 to 24) / 34 (33 to 34) | 43 / 60 |
+    | vLLM, 16 | on / off | 15.78 / 15.76 | 22 (22 to 23) / 36 (36 to 36) | 42 / 71 |
+
+    Reading it: the cache lowers the median time to first token by 17 to 22% for the engine and by
+    24 to 39% for vLLM, which is 8 to 14 ms in both (a 1.1k-token prefill is short on this GPU, so
+    the absolute saving is small). Where the engine is overloaded (16 req/s) the cache raises
+    delivered throughput by 11% (the ranges do not overlap, but that cell has two cache-on runs
+    because one was flagged contended). vLLM's throughput does not move because it is not
+    saturated. Prefix-aware routing's benefit (D-007) is a different question and is unmeasured on
+    real replicas. Seeds 0 and 1 and the first engine cache-on seed-2 sweep ran before the monitor
+    below existed (27 of the 36 runs); their flags say "no coverage", not "disturbed".
+  - **Is the machine consistent between runs? (monitor, audit, repeat).** The sweep's own check
+    (GPU above 10% in five samples before the load) misses other users' CPU, anything that starts
+    mid-run and GPU slowdown, so `bench/machine_monitor.py` and `bench/machine_audit.py` were
+    added (`results/machine-monitor-p3.jsonl`, `results/machine-audit-p3-p4.md`). The monitor
+    ran for 55 minutes (1,593 samples, from the last third of pass 3 to the end of pass 4):
+    other users' CPU at most 0.015 cores (mean 0.0002; 24 cores on the machine), no GPU process
+    that was not ours, temperature 27 to 66 C, power at most 456 W, and the only throttle reason
+    the driver reported was the ordinary power cap (178 of 1,593 samples). All 29 runs inside that
+    window audit clean. For the earlier, unmonitored passes, pass 4 repeated 20 configurations
+    from pass 2 (seeds 1 and 2) under the monitor: over the 17 pairs neither run flagged,
+    delivered throughput differed by 1.3% on average and 4.6% at most (engine 1.2% and 2.2%,
+    Hugging Face 1.9% and 4.6% with the repeat slightly faster in 7 of 8, vLLM 0.0%); the three
+    originally flagged runs repeated within 0.1, 0.1 and 3.2%. Below saturation delivered
+    throughput equals the offered rate by construction, so the informative pairs are the
+    saturated cells (rate 16): from -0.5 to +4.6%. That is evidence the earlier runs were not
+    disturbed, not proof: two seeds, one afternoon. **The sweep's contention flag is weak:** all
+    six runs it flagged (0 of 143 unflagged ones have the pattern) show one first sample of 12 to
+    26% followed by four zeros, none was inside a monitored window, the cause is unknown, and
+    their throughput matches their repeats; a one-sample blip should not by itself decide that a
+    run is contended.
+  - **Limits.** One consumer GPU, one model, one workload shape, bf16 only; one shared-prefix
+    setting; the Hugging Face best setting is at the edge of its grid
     (batch 64 is about the memory limit); the box's code was a `git archive` of commit b101006, so
     the environment captures record `git.commit: null`.
 
@@ -841,3 +891,7 @@ Design ideas taken from public papers and documentation; no code was copied.
 | 2026-11-20 | Load cap of the prefix policies, same mock fleet, 1200 requests at 30 req/s, not overloaded (D-007; **mock backend, uncalibrated timing, not GPU**) | Fleet prefix-cache hit rate of approx-prefix, mean of 3 seeds | 44.4% at cap 4 | 71.5% at cap 16 (unchanged, 71.8% at 32 and 72.4% with no cap) | `results/router-compare-mock-load-cap-sweep.json`, `python -m bench.router_compare ... --load-caps 4,8,16,32,1000` (full command in the file) |
 | 2026-11-23 | Engine against Hugging Face static batching (20 ms window, batch 64), RTX 5090, bf16, 1B model, standard workload, 16 req/s offered (D-019) | Delivered throughput, req/s, mean of 4 workload seeds (min to max) | 9.03 (8.44 to 9.44) (Hugging Face static) | 14.35 (13.52 to 15.13) (engine, batch 64) | `results/variation-engine-rtx5090.md`, `results/variation-hf-static-rtx5090.md`; `python -m bench.sweep --system engine\|hf-static ... --seed N` (the exact sweep commands are in `deploy/gpu_pass1.sh` and `deploy/gpu_pass2.sh`, and each run's manifest) |
 | 2026-11-23 | vLLM against the engine, same machine and workload, 16 req/s offered (D-019; vLLM not saturated even at 48 req/s, engine overloaded from 16) | Delivered throughput, req/s, mean of 4 workload seeds (min to max) | 14.35 (13.52 to 15.13) (engine, batch 64) | 15.80 (15.50 to 16.24) (vLLM) | `results/variation-engine-rtx5090.md`, `results/variation-vllm-rtx5090.md` |
+| 2026-11-23 | Prefix cache on against off, engine, RTX 5090, shared-prefix workload (8 prefixes x 1024 tokens, skew 1, suffix median 64), batch 32, 8 req/s offered (D-005, D-019) | Median time to first token, ms, mean of 3 seeds (min to max) | 46 (46 to 47) (cache off) | 38 (37 to 39) (cache on) | `results/variation-prefix-engine-{on,off}-rtx5090.md`; `deploy/gpu_pass3.sh` |
+| 2026-11-23 | Prefix cache on against off, engine, same workload, 16 req/s offered (engine overloaded) | Delivered throughput, req/s, mean of 3 seeds (min to max; 2 cache-on runs, 1 flagged contended) | 10.93 (10.74 to 11.16) (cache off) | 12.17 (11.83 to 12.51) (cache on) | same files |
+| 2026-11-23 | Prefix cache on against off, vLLM, same workload, 16 req/s offered (not saturated) | Median time to first token, ms, mean of 3 seeds (min to max) | 36 (36 to 36) (cache off) | 22 (22 to 23) (cache on) | `results/variation-prefix-vllm-{on,off}-rtx5090.md`; `deploy/gpu_pass3.sh` |
+| 2026-11-23 | Machine monitor and audit added for shared benchmark machines (D-019); pass 4 repeats 20 configurations of pass 2 under the monitor | Throughput difference between a repeat and its original, mean absolute, 17 pairs neither flagged contended | not measurable before (no monitor; the sweep's own check saw only 5 GPU samples before a run) | 1.3% (max 4.6%); 29 monitored runs audit clean | `results/repro-vs-original-rtx5090.md`, `results/machine-audit-p3-p4.md`, `python -m bench.repro_compare ...` |
