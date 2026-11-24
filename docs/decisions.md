@@ -1297,9 +1297,10 @@ estimates are recorded here as if they were results.
   the timing model is missing a term, and the entry records which.
 - **Measured effect:** none yet.
 
-### D-025 Decode attention that reads the blocks in place (PLANNED, criteria fixed in advance)
+### D-025 Decode attention that reads the blocks in place (BUILT; correctness gate (a) FAILED in bf16; no speed claim)
 
-- **Status:** planned 2026-11-24; **nothing is built.** Follows from D-020's prerequisite
+- **Status:** planned 2026-11-24 (**updated the same day: built and tested; see the build log and
+  the measured effect below**); at the time of writing nothing was built. Follows from D-020's prerequisite
   measurement: on the real length mix the decode step is GPU-bound, attention plus the gather are
   84% of GPU time, and the padded batch does 3.7 times the work it needs.
 - **Hypothesis:** a decode-attention kernel (Triton, the stretch goal of D-003) that, for each
@@ -1435,7 +1436,44 @@ estimates are recorded here as if they were results.
   failed, and no speed is claimed on it; no second tuning round. Because the bf16 outcome is
   decided by a handful of near-ties, a pass will be read with the run-to-run spread in mind (the
   same session also repeats the bf16 runs once, to see whether divergences are reproducible).
-- **Measured effect:** none yet.
+- **GPU session 3, result of that change (2026-11-24, same machine, self-test first, monitor quiet:
+  other users' CPU at most 0.01 cores, no foreign GPU process; code = commit `e9f91e7`;
+  `deploy/gpu_d025_eval_v2.sh`; `results/d025-kernel-gate-3.log`,
+  `results/d025-eval-v2-session.log`, `results/scheduler-eval-rtx5090-*-d025kernelv2*.json`).**
+  - Kernel tests 15 of 15. fp32 unchanged: 50 of 50 identical in all three configurations on
+    both prompt sets, and the generated tokens are bit-identical to session 2's (outputs hashes
+    equal), as predicted for a change that is a no-op in fp32.
+  - **bf16: the gate still fails.** The same one divergence remains, shared-prefix prompt 10 at
+    generated token 3, gap 0.1875 (Hugging Face's own top-1 minus top-2 is exactly 0.1875), now
+    in two configurations (served and preempting) instead of one (no-prefix-cache); the
+    no-prefix-cache configuration is now within 0.125. All other divergences, 36 and 33 of 50
+    identical on the frozen prompts and 40, 38, 38 on the shared-prefix prompts, are at most
+    0.125. The repeat of every bf16 run gave bit-identical outputs (same hashes), so the result is
+    reproducible, not noise. The gather path, on the same prompt set (same hash), gets prompt 10
+    right in all three configurations.
+  - **Reading.** Rounding the weights moved the bf16 identical counts toward the gather path's
+    (frozen 36, 36, 33 against 35, 35, 32) but did not remove this near-tie flip, so the
+    hypothesis that this rounding explains it is **not supported**; what the data does show is
+    that prompt 10's token 3 is a near-tie (0.1875) that the kernel resolves the other way
+    depending on small numerical differences, while the gather path resolves it like Hugging
+    Face. Why is not known.
+  - **Following the rule written before the change:** the kernel is reverted to the session 2
+    version (the rounding version stays in git as `e9f91e7`), criterion (a)(ii) for bf16 is
+    **recorded as failed**, and **no speed is claimed**; there is no second tuning round. Speed
+    (b) and (c) and (a)(iv) were never run. The kernel stays in the repository, opt-in and
+    default off, as an unclaimed experiment with the fp32 correctness record above.
+  - What the owner could decide next (not done, no plan written): (1) stop here and carry D-025
+    as a partial negative result; (2) write a new, dated, pre-registered plan (a D-026) that
+    says up front, as a post-hoc choice, what bf16 agreement is required (for example a count
+    of divergences and a gap limit in terms of the logit resolution) and then runs it afresh,
+    possibly with an investigation of why prompt 10 flips; (3) try the fallback named in the
+    design constraints (length-sorted groups of the decode batch, which keeps PyTorch's own
+    attention) as a separate pre-registered experiment.
+- **Measured effect:** none claimed. The kernel is correct in fp32 (scheduler 50 of 50 identical to
+  Hugging Face on both prompt sets, three configurations each, preemptions and cache hits
+  included; error against float64 at most 0.57 times the gather path's) but **fails the fixed bf16
+  gate by one divergence (0.1875 against 0.125)**, also after the one allowed fix; so by the
+  pre-stated rule nothing is claimed and speed was not measured. See the build log above.
 
 ## Open verification items
 

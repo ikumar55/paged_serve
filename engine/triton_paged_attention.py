@@ -93,9 +93,6 @@ def _decode_kernel(
             mask=valid[:, None],
             other=0.0,
         ).to(tl.float32)
-        # Round the weights to the value dtype before the weighted sum, as PyTorch's attention
-        # kernels do (the running sum above stays float32). A no-op for float32 pools.
-        weights = weights.to(v_ptr.dtype.element_ty).to(tl.float32)
         acc = acc * rescale[:, None] + tl.sum(weights[:, :, None] * values[None, :, :], axis=1)
         running_max = new_max
 
