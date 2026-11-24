@@ -223,3 +223,46 @@ def test_benchmark_tools_pass_the_decoder_through_and_refuse_nonsense() -> None:
         se.parse_args([*base, "--cuda-graphs"])
     with pytest.raises(SystemExit, match="paged-attention-kernel"):
         main(["--backend", "mock", "--cuda-graphs"])
+
+
+def test_the_evaluations_leak_check_allows_the_scratch_block_and_still_catches_leaks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from bench import scheduler_eval as se
+
+    model = make_model(CFG)
+    config = se.SchedulerConfig("no-cache", num_blocks=64, max_batch_size=2, prefix_caching=False)
+    prompts = [[1, 2, 3, 4, 5], [6, 7, 8]]
+    with torch.inference_mode():
+        plain, _ = se.run_scheduler(model, prompts, 4, config, torch.float32)
+        graphed, _ = se.run_scheduler(
+            model,
+            prompts,
+            4,
+            config,
+            torch.float32,
+            decode_attention_reference,
+            True,
+            graph_capture=False,
+        )
+    assert graphed == plain  # the one scratch block is not reported as a leak
+
+    original = Scheduler.run_to_completion
+
+    def leaky(self: Scheduler) -> dict[int, list[int]]:
+        outputs = original(self)
+        self.pool.allocator.allocate()  # a block nobody gives back
+        return outputs
+
+    monkeypatch.setattr(Scheduler, "run_to_completion", leaky)
+    with torch.inference_mode(), pytest.raises(RuntimeError, match="leaked"):
+        se.run_scheduler(
+            model,
+            prompts,
+            4,
+            config,
+            torch.float32,
+            decode_attention_reference,
+            True,
+            graph_capture=False,
+        )

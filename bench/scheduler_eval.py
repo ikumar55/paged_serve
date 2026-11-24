@@ -62,6 +62,7 @@ def run_scheduler(
     dtype: torch.dtype,
     decode_attention: DecodeAttention | None = None,
     cuda_graphs: bool = False,
+    graph_capture: bool = True,
 ) -> tuple[list[list[int]], dict[str, Any]]:
     """Serve every prompt to ``n_tokens`` new tokens; returns the outputs and scheduler counters."""
     # the graph decoder keeps one block as scratch; one more keeps the usable capacity equal
@@ -72,7 +73,9 @@ def run_scheduler(
     if cuda_graphs:
         if decode_attention is None:
             raise ValueError("CUDA graphs need the decode-attention kernel")
-        decoder = CudaGraphDecoder(model, pool, decode_attention, config.max_batch_size)
+        decoder = CudaGraphDecoder(
+            model, pool, decode_attention, config.max_batch_size, capture=graph_capture
+        )
     scheduler = Scheduler(
         model,
         pool,
@@ -84,7 +87,8 @@ def run_scheduler(
     for index, ids in enumerate(prompts):
         scheduler.add_request(index, list(ids), n_tokens)
     outputs = scheduler.run_to_completion()
-    if pool.allocator.num_used != 0 and not config.prefix_caching:
+    held = 1 if decoder is not None else 0  # the graph decoder keeps one block as scratch
+    if pool.allocator.num_used != held and not config.prefix_caching:
         raise RuntimeError("blocks leaked")
     stats = {
         "preemptions": scheduler.total_preemptions,
