@@ -1419,6 +1419,22 @@ estimates are recorded here as if they were results.
     fixed above, "(a) fails: fix it or revert; nothing is claimed", so **no speed claim can be
     made yet**; the criterion has not been changed, because results exist.
   - Not yet run: (a)(iv) a server run with zero failed requests, and (b) and (c), the speed.
+- **Kernel change after the session 2 result (2026-11-24, decided with the owner, written before
+  the change is made or rerun). The success criteria are NOT changed; this is a code change under
+  the rule "(a) fails: fix it or revert".** Hypothesis, untested: PyTorch's attention kernels
+  (the flash and memory-efficient kinds Hugging Face and the gather path use) keep the running
+  softmax sum in fp32 but round the softmax weights to the value dtype (bf16) before multiplying
+  them with V; the kernel kept the weights in fp32, so it rounds differently from the reference
+  and the gather path and the near-tie at 0.1875 went the other way. Change: round the weights to
+  the pool's dtype before the weighted sum over V (a no-op in fp32, so the fp32 results should not
+  change at all; the sum itself stays fp32, as in an mma with fp32 accumulation), and nothing
+  else. Prediction, written now: fp32 stays 50 of 50 in every configuration and bit-identical
+  tokens to the session 2 fp32 runs; in bf16 all divergences are within 0.125 (the gate), and the
+  kernel's error against float64 stays within 2x the gather path's. If the bf16 gate still fails
+  after this one change, the kernel is reverted to the session 2 version, the gate is recorded as
+  failed, and no speed is claimed on it; no second tuning round. Because the bf16 outcome is
+  decided by a handful of near-ties, a pass will be read with the run-to-run spread in mind (the
+  same session also repeats the bf16 runs once, to see whether divergences are reproducible).
 - **Measured effect:** none yet.
 
 ## Open verification items
