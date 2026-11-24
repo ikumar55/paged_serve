@@ -36,6 +36,7 @@ from typing import Any
 
 import torch
 
+from engine.cuda_graph import CudaGraphDecoder
 from engine.paged_attention import DecodeAttention, resolve_kernel
 from engine.paged_cache import KVPool, PagedBatchCache, PagedSequenceCache
 from engine.scheduler import LanguageModel
@@ -43,6 +44,7 @@ from engine.scheduler import LanguageModel
 SCHEMA_VERSION = 1
 NEAR_TIE_MARGIN = 0.125  # truth margins below this are "near-ties" (one bf16 logit step)
 VARIANTS = ("fp32-kernel", "bf16-gather", "bf16-kernel")
+GRAPH_VARIANTS = ("fp32-graphs", "bf16-graphs")  # added by --graphs (D-027)
 
 
 @dataclass
@@ -52,6 +54,7 @@ class Variant:
     pool: KVPool
     attention: DecodeAttention | None
     caches: list[PagedSequenceCache] = field(default_factory=list)
+    decoder: CudaGraphDecoder | None = None  # when set, decode steps replay CUDA graphs (D-027)
 
 
 @dataclass
@@ -80,7 +83,10 @@ def prefill(variant: Variant, prompts: Sequence[Sequence[int]]) -> torch.Tensor:
 def decode_step(variant: Variant, tokens: torch.Tensor) -> torch.Tensor:
     """One batched decode step with the given next tokens; logits ``[n, vocab]``."""
     step = PagedBatchCache(variant.caches, attention=variant.attention)
-    logits = variant.model(tokens.unsqueeze(1), positions=step.positions(), cache=step)
+    if variant.decoder is not None:
+        logits = variant.decoder.run(step, tokens.unsqueeze(1))
+    else:
+        logits = variant.model(tokens.unsqueeze(1), positions=step.positions(), cache=step)
     return logits[:, -1].float()
 
 
@@ -187,22 +193,35 @@ def load_records(path: Path) -> dict[str, Records]:
 
 
 def report(paths: Sequence[Path]) -> dict[str, Any]:
-    """Pool several result files and evaluate D-026's criteria."""
+    """Pool result files; evaluate D-026's criteria (and D-027's when there are graph variants)."""
     pooled = combine([load_records(path) for path in paths])
     summaries = {name: summarise(record) for name, record in pooled.items()}
-    return {
+    document: dict[str, Any] = {
         "files": [path.name for path in paths],
         "summaries": summaries,
         "criteria": criteria(summaries),
     }
+    if all(name in summaries for name in GRAPH_VARIANTS):
+        document["criteria_graphs"] = criteria(
+            summaries, candidate="bf16-graphs", fp32_variant="fp32-graphs"
+        )
+    return document
 
 
-def criteria(summaries: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """D-026's four criteria, as written there, from the summaries of the pooled records."""
+def criteria(
+    summaries: dict[str, dict[str, Any]],
+    candidate: str = "bf16-kernel",
+    fp32_variant: str = "fp32-kernel",
+) -> dict[str, Any]:
+    """D-026's four criteria, as written there, from the summaries of the pooled records.
+
+    ``candidate`` and ``fp32_variant`` name the bf16 variant judged against the gather path and the
+    fp32 variant used for the sanity check; D-027 applies the same criteria to the graph variants.
+    """
     gather, kernel, fp32 = (
         summaries["bf16-gather"],
-        summaries["bf16-kernel"],
-        summaries["fp32-kernel"],
+        summaries[candidate],
+        summaries[fp32_variant],
     )
     result = {
         "i_mean_error_ratio": kernel["error_mean"] / gather["error_mean"],
@@ -229,6 +248,9 @@ def build_variants(
     num_blocks: int,
     block_size: int,
     device: str,
+    graphs: bool = False,
+    graph_max_batch: int = 64,
+    graph_capture: bool = True,
 ) -> tuple[Variant, list[Variant]]:
     def pool(model: LanguageModel, dtype: torch.dtype) -> KVPool:
         return KVPool(model.cfg, num_blocks, block_size, dtype, device)
@@ -239,6 +261,19 @@ def build_variants(
         Variant("bf16-gather", bf16_model, pool(bf16_model, torch.bfloat16), None),
         Variant("bf16-kernel", bf16_model, pool(bf16_model, torch.bfloat16), attention),
     ]
+    if graphs:
+        # Built for a larger maximum batch than the prompt set, so a step runs in a bucket with
+        # padding rows: the case D-027 is about.
+        for name, model, dtype in (
+            ("fp32-graphs", truth_model, torch.float32),
+            ("bf16-graphs", bf16_model, torch.bfloat16),
+        ):
+            variant = Variant(name, model, pool(model, dtype), attention)
+            assert attention is not None
+            variant.decoder = CudaGraphDecoder(
+                model, variant.pool, attention, graph_max_batch, capture=graph_capture
+            )
+            others.append(variant)
     return truth, others
 
 
@@ -257,6 +292,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--shared-prefix-suffix", type=int, default=64)
     parser.add_argument("--kv-cache-gb", type=float, default=2.0, help="per variant pool")
     parser.add_argument("--block-size", type=int, default=16)
+    parser.add_argument(
+        "--graphs",
+        action="store_true",
+        help="also run the fp32 and bf16 models through CUDA graphs (D-027; needs a GPU)",
+    )
     parser.add_argument(
         "--attention",
         choices=("triton", "reference"),
@@ -284,6 +324,9 @@ def report_main(argv: Sequence[str]) -> int:
             f"({summary['flips_not_near_tie']} not near-ties)"
         )
     print(json.dumps(document["criteria"], indent=2, sort_keys=True))
+    if "criteria_graphs" in document:
+        print("graph variants:")
+        print(json.dumps(document["criteria_graphs"], indent=2, sort_keys=True))
     return 0
 
 
@@ -327,13 +370,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     per_token = cfg.kv_bytes_per_token(4)  # the fp32 pools are the larger
     num_blocks = int(args.kv_cache_gb * 2**30 // (per_token * args.block_size))
     longest = max(len(p) for p in prompts) + args.steps + 1
-    needed = len(prompts) * (-(-longest // args.block_size) + 1)
+    needed = len(prompts) * (-(-longest // args.block_size) + 1) + 1  # +1: graph scratch block
     if num_blocks < needed:
         raise SystemExit(f"--kv-cache-gb too small: {num_blocks} blocks, {needed} needed")
 
     attention = resolve_kernel(args.attention)
     truth, others = build_variants(
-        truth_model, bf16_model, attention, num_blocks, args.block_size, args.device
+        truth_model,
+        bf16_model,
+        attention,
+        num_blocks,
+        args.block_size,
+        args.device,
+        graphs=args.graphs,
     )
     started = time.perf_counter()
     with torch.inference_mode():

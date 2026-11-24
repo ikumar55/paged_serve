@@ -174,3 +174,102 @@ def test_the_command_line_wants_exactly_one_prompt_source() -> None:
     with pytest.raises(SystemExit):
         ble.parse_args([*base, "--prompts-from", "p.json", "--shared-prefix-groups", "8"])
     assert ble.parse_args([*base, "--shared-prefix-groups", "8"]).shared_prefix_groups == 8
+
+
+def run_with_graphs(attention, steps: int = 4):  # type: ignore[no-untyped-def]
+    truth_model = make_model(CFG)
+    truth, others = ble.build_variants(
+        truth_model,
+        bf16_copy(truth_model),
+        attention,
+        num_blocks=200,
+        block_size=4,
+        device="cpu",
+        graphs=True,
+        graph_max_batch=8,  # buckets 1, 2, 4, 8: the four prompts fit the 4-row bucket exactly
+        graph_capture=False,
+    )
+    with torch.inference_mode():
+        return ble.run_lockstep(truth, others, PROMPTS, steps), others
+
+
+def test_graph_variants_are_added_run_through_the_decoder_and_padded() -> None:
+    records, others = run_with_graphs(decode_attention_reference)
+    assert set(records) == {*ble.VARIANTS, *ble.GRAPH_VARIANTS}
+    graph_variants = [v for v in others if v.name in ble.GRAPH_VARIANTS]
+    assert len(graph_variants) == 2
+    for variant in graph_variants:
+        assert variant.decoder is not None
+        assert variant.decoder.stats.replays == 4  # every decode step went through the decoder
+    # the default buckets for a maximum batch of 8 are 1, 2, 4, 8: four prompts fit exactly, so
+    # no padding here; the padded case is covered by the next test
+    fp32 = ble.summarise(records["fp32-graphs"])
+    assert fp32["flips"] == 0 and fp32["error_max"] < 1e-4
+
+
+def test_graph_variants_with_padding_rows_still_agree_with_truth() -> None:
+    truth_model = make_model(CFG)
+    truth, others = ble.build_variants(
+        truth_model,
+        bf16_copy(truth_model),
+        decode_attention_reference,
+        num_blocks=200,
+        block_size=4,
+        device="cpu",
+        graphs=True,
+        graph_max_batch=6,  # buckets 1, 2, 4, 6: four prompts still fit exactly, so force 3 buckets
+        graph_capture=False,
+    )
+    for variant in others:
+        if variant.decoder is not None:  # drop the exact-fit bucket so rows are padded
+            for size in (4,):
+                variant.decoder.buckets.pop(size)
+            variant.decoder.max_bucket = 6
+    with torch.inference_mode():
+        records = ble.run_lockstep(truth, others, PROMPTS, 4)
+    for variant in others:
+        if variant.decoder is not None:
+            assert variant.decoder.stats.padded_rows == 2 * 4  # 6-row bucket, 4 prompts, 4 steps
+    assert ble.summarise(records["fp32-graphs"])["error_max"] < 1e-4
+
+
+def test_criteria_can_be_applied_to_the_graph_variants() -> None:
+    gather = summary_of(0.10, 0.40, 10)
+    fp32 = summary_of(1e-6, 1e-5, 0)
+    summaries = {
+        "bf16-gather": gather,
+        "bf16-kernel": summary_of(0.10, 0.40, 10),
+        "fp32-kernel": fp32,
+        "bf16-graphs": summary_of(0.12, 0.40, 10),  # 20% worse on the mean: fails (i)
+        "fp32-graphs": fp32,
+    }
+    assert ble.criteria(summaries)["all_pass"]
+    verdict = ble.criteria(summaries, candidate="bf16-graphs", fp32_variant="fp32-graphs")
+    assert not verdict["i_pass"] and not verdict["all_pass"]
+
+
+def test_the_report_adds_graph_criteria_only_when_graph_variants_exist(tmp_path: Path) -> None:
+    records, _ = run_with_graphs(decode_attention_reference, steps=2)
+
+    def write(name: str, variants: set[str]) -> Path:
+        path = tmp_path / name
+        document = {
+            "records": {
+                v: {
+                    "max_error": r.max_error,
+                    "flip": [int(f) for f in r.flip],
+                    "margin": r.margin,
+                    "prompt": r.prompt,
+                    "step": r.step,
+                }
+                for v, r in records.items()
+                if v in variants
+            }
+        }
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    with_graphs = ble.report([write("a.json", set(records))])
+    assert "criteria_graphs" in with_graphs and with_graphs["criteria_graphs"]["iv_pass"]
+    without = ble.report([write("b.json", set(ble.VARIANTS))])
+    assert "criteria_graphs" not in without
