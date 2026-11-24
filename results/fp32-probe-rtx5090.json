@@ -1,0 +1,36 @@
+{
+  "settings": {
+    "torch": "2.15.0+cu132",
+    "cuda_build": "13.2",
+    "float32_matmul_precision": "highest",
+    "allow_tf32_matmul": false,
+    "allow_tf32_cudnn": true,
+    "cublas_env": {},
+    "matmul_fp32_precision": "none",
+    "device": "NVIDIA GeForce RTX 5090"
+  },
+  "cpu": {
+    "matmul 2048x2048": 5.036267722996027e-07,
+    "output head (linear 2048 -> 128256)": 2.5637747506665405e-07,
+    "softmax attention": 5.445410089655761e-07,
+    "rms norm": 1.2593463579330908e-07
+  },
+  "device_default": {
+    "matmul 2048x2048": 5.479551557077025e-07,
+    "output head (linear 2048 -> 128256)": 1.0175399165343164e-06,
+    "softmax attention": 7.145131465017596e-07,
+    "rms norm": 9.592388997571667e-08
+  },
+  "device_tf32_off_highest": {
+    "matmul 2048x2048": 5.479551557077025e-07,
+    "output head (linear 2048 -> 128256)": 1.0175399165343164e-06,
+    "softmax attention": 7.145131465017596e-07,
+    "rms norm": 9.592388997571667e-08
+  },
+  "device_tf32_on_high": {
+    "matmul 2048x2048": 0.0003049815985493034,
+    "output head (linear 2048 -> 128256)": 0.0002914475666677098,
+    "softmax attention": 7.145131465017596e-07,
+    "rms norm": 9.592388997571667e-08
+  }
+}

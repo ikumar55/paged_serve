@@ -1,0 +1,350 @@
+{
+  "meta": {
+    "block_size": 16,
+    "captured_at_utc": "2026-11-24T00:56:46+00:00",
+    "device": "NVIDIA GeForce RTX 5090",
+    "dtype": "bfloat16",
+    "label": "rtx5090-prefix-bf16",
+    "model": "Llama-3.2-1B-Instruct",
+    "prompt_set": {
+      "count": 50,
+      "groups": 8,
+      "prefix_len": 1024,
+      "seed": 0,
+      "sha256": "2db1602012a4f25acd36f94d0457c8c7b8450c858373a17b47de5b2fce002466",
+      "source": "synthetic shared prefixes",
+      "suffix_len": 64
+    },
+    "reference": "transformers generate, greedy, EOS disabled, same device and dtype",
+    "tokens": 64,
+    "torch": "2.15.0+cu132"
+  },
+  "prefix_cache_on_vs_off": {
+    "diverged": [
+      {
+        "first_divergence": 9,
+        "prompt": 9
+      },
+      {
+        "first_divergence": 1,
+        "prompt": 16
+      },
+      {
+        "first_divergence": 3,
+        "prompt": 20
+      },
+      {
+        "first_divergence": 24,
+        "prompt": 24
+      },
+      {
+        "first_divergence": 2,
+        "prompt": 27
+      },
+      {
+        "first_divergence": 0,
+        "prompt": 28
+      },
+      {
+        "first_divergence": 3,
+        "prompt": 32
+      },
+      {
+        "first_divergence": 7,
+        "prompt": 39
+      },
+      {
+        "first_divergence": 8,
+        "prompt": 41
+      },
+      {
+        "first_divergence": 1,
+        "prompt": 42
+      },
+      {
+        "first_divergence": 28,
+        "prompt": 46
+      },
+      {
+        "first_divergence": 15,
+        "prompt": 48
+      }
+    ],
+    "identical": 38,
+    "prompts": 50
+  },
+  "results": {
+    "no-prefix-cache": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 3658,
+        "prefix_caching": false
+      },
+      "diverged": [
+        {
+          "first_divergence": 20,
+          "prompt": 3,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0625,
+          "reference_top1_minus_top2": 0.0625
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 9,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 20,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 3,
+          "prompt": 32,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 3,
+          "prompt": 36,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 7,
+          "prompt": 39,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 8,
+          "prompt": 41,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 57,
+          "prompt": 46,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        },
+        {
+          "first_divergence": 15,
+          "prompt": 48,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0625,
+          "reference_top1_minus_top2": 0.0625
+        }
+      ],
+      "identical": 41,
+      "outputs_sha256": "44005196dc0293638c0475544c36f8c6c4340cc5a5866d9e9eec0f6988087349",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 0,
+        "steps": 127
+      }
+    },
+    "preempting": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 778,
+        "prefix_caching": true
+      },
+      "diverged": [
+        {
+          "first_divergence": 20,
+          "prompt": 3,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0625,
+          "reference_top1_minus_top2": 0.0625
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 9,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 16,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 20,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 24,
+          "prompt": 24,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 2,
+          "prompt": 27,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 0,
+          "prompt": 28,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 5,
+          "prompt": 32,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 3,
+          "prompt": 36,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 42,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 28,
+          "prompt": 46,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        }
+      ],
+      "identical": 39,
+      "outputs_sha256": "df2466585bdd4e6f2de1e2303f9c9c2acba64ac6d06835833d8a8e0955679a21",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 43008,
+        "steps": 127
+      }
+    },
+    "served": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 3658,
+        "prefix_caching": true
+      },
+      "diverged": [
+        {
+          "first_divergence": 20,
+          "prompt": 3,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0625,
+          "reference_top1_minus_top2": 0.0625
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 9,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 16,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 20,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 24,
+          "prompt": 24,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 2,
+          "prompt": 27,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 0,
+          "prompt": 28,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 5,
+          "prompt": 32,
+          "reference_token_is_top1": false,
+          "reference_token_minus_scheduler_token_logit": -0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 3,
+          "prompt": 36,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.0,
+          "reference_top1_minus_top2": 0.0
+        },
+        {
+          "first_divergence": 1,
+          "prompt": 42,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.03125,
+          "reference_top1_minus_top2": 0.03125
+        },
+        {
+          "first_divergence": 28,
+          "prompt": 46,
+          "reference_token_is_top1": true,
+          "reference_token_minus_scheduler_token_logit": 0.125,
+          "reference_top1_minus_top2": 0.125
+        }
+      ],
+      "identical": 39,
+      "outputs_sha256": "df2466585bdd4e6f2de1e2303f9c9c2acba64ac6d06835833d8a8e0955679a21",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 43008,
+        "steps": 127
+      }
+    }
+  },
+  "schema_version": 1
+}
