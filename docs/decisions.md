@@ -1111,6 +1111,41 @@ estimates are recorded here as if they were results.
   10.20 ms two sessions ago), so the CPU-bound part of a step varies by about a quarter between
   sessions on this shared host, which is why every baseline here is re-measured in the same
   session; and the profile is of one step in isolation, not of a running server.
+- **Amendment 2: re-test on the kernel path (2026-11-24, written before any graph code exists;
+  no graph result of any kind exists; this replaces the numbers of (b) and (c) and the baseline,
+  for the reasons given, and nothing else).** D-025's kernel makes the real-mix step 52% shorter
+  (diagnostic, D-025) and leaves the GPU idle 20 to 37% of it, so graphs are now worth testing,
+  but the criteria above were written for the gather path and two of them can no longer be met
+  even by a perfect implementation, which is the mistake the first amendment of this entry already
+  corrected once:
+  - *Baseline.* Baseline is the engine with `--paged-attention-kernel`; the variant is the same
+    with `--cuda-graphs` added. Graphs on the gather path are not tested (D-020 stays parked
+    there). Interleaved by seed within one session, monitor on, audit, self-test first, as before.
+  - *(b), step time.* A step on the real mix at batch 60 is about 9.4 ms with the kernel, of which
+    the GPU is busy about 6.9 ms (26% idle). Removing every launch gap cannot cut the wall time
+    by more than that 26%, so the 30% bar cannot be met. New (b): median wall time of the real-mix
+    step at batch 60 (`bench.profile_decode --mix-seeds 0,1,2,3 --mix-attention triton` with and
+    without graphs) at least **15% lower** on average and at least 8% lower on every seed.
+  - *(c), end to end.* Decode is 67 to 74% of the scheduler's time offline (D-021) and the engine
+    thread is busy inside the step 97 to 98% of the time at saturation, so a step that is 26%
+    faster gives at most about 1.2 times; 1.25 cannot be met. New (c): engine batch 64 at 32
+    req/s offered, four seeds, paired per-seed ratio of delivered throughput, **mean at least 1.10
+    and every seed at least 1.05**.
+  - *(a), correctness.* (i) and (iii) as written (fp32, frozen and shared-prefix prompts, 50 of 50
+    in all three configurations, with the kernel on). (ii) is replaced by something stricter that
+    is also the right test: graph capture must not change a single number, so in fp32 **and** bf16
+    the graph path's generated tokens are identical to the eager kernel path's (equal output
+    hashes, all configurations, both prompt sets), which carries over D-025's and D-026's accuracy
+    findings unchanged. (iv) as written (eager and graph logits bit-equal on identical inputs in
+    fp32; the real rows' logits unchanged by padding rows). (v) as written.
+  - *Predictions, written now:* (b) the step falls 15 to 25%; (c) the mean ratio is 1.10 to 1.20,
+    so the new bar is inside the range but not a foregone conclusion; (a) holds because the same
+    kernels run in the same order.
+  - *Interpretation, fixed now:* (a) fails: revert, nothing claimed. (a) holds, (b) passes, (c)
+    passes: report the gain as the bundle it is (graphs, static buffers, a scratch block for
+    padding rows) and record the new profile. (b) passes and (c) fails: the rest of the server
+    (prefill, scheduling) dominates, which is the next item. (b) fails: capture does not remove
+    the launch overhead in this design (or the idle time is not launch gaps); record the profile.
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
   saturation, the server path and prefill are (see D-021), which is a result. (b) fails: graphs
   do not remove the launch overhead in this design. (a) fails: revert. All pass: record the gain
