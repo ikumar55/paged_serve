@@ -34,13 +34,14 @@ import torch
 from torch.profiler import ProfilerActivity, profile
 
 from bench.workload import LengthDist, WorkloadConfig, generate_workload
+from engine.paged_attention import DecodeAttention, resolve_kernel
 from engine.paged_cache import KVPool
 from engine.scheduler import LanguageModel, Scheduler
 
 # (substring of the lowercase kernel name, category), checked in order: the first match wins.
 CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
     # Attention first: PyTorch's memory-efficient attention kernel is named "fmha_cutlassF_...".
-    (("fmha", "flash", "attention", "sdpa", "softmax"), "attention"),
+    (("fmha", "flash", "attention", "sdpa", "softmax", "decode_kernel"), "attention"),
     (("gemm", "cutlass", "cublas", "nvjet", "gemv", "sgemm", "xmma"), "matmul"),
     (
         ("index", "gather", "scatter", "copy", "memcpy", "cat", "permute", "transpose"),
@@ -141,6 +142,7 @@ def fill_batch(
     prompt_len: int | Sequence[int],
     new_tokens: int,
     seed: int = 0,
+    decode_attention: DecodeAttention | None = None,
 ) -> Scheduler:
     """A scheduler with sequences prefilled and running, none finished.
 
@@ -149,7 +151,13 @@ def fill_batch(
     """
     lengths = [prompt_len] * batch_size if isinstance(prompt_len, int) else list(prompt_len)
     batch_size = len(lengths)
-    scheduler = Scheduler(model, pool, max_batch_size=batch_size, enable_prefix_caching=False)
+    scheduler = Scheduler(
+        model,
+        pool,
+        max_batch_size=batch_size,
+        enable_prefix_caching=False,
+        decode_attention=decode_attention,
+    )
     generator = torch.Generator().manual_seed(seed)
     vocab = model.cfg.vocab_size
     for request_id, length in enumerate(lengths):
@@ -188,6 +196,7 @@ def profile_batch(
     prompt_len: int | Sequence[int],
     steps: int,
     warmup: int = 5,
+    decode_attention: DecodeAttention | None = None,
 ) -> dict[str, Any]:
     """One batch: wall time of decode steps, then kernel statistics of the same steps.
 
@@ -196,7 +205,9 @@ def profile_batch(
     padded batch does beyond what is needed.
     """
     new_tokens = warmup + 2 * steps + 8  # nobody finishes while we measure
-    scheduler = fill_batch(model, pool, batch_size, prompt_len, new_tokens)
+    scheduler = fill_batch(
+        model, pool, batch_size, prompt_len, new_tokens, decode_attention=decode_attention
+    )
     mix: dict[str, float] = {}
     if not isinstance(prompt_len, int):
         batch_size = len(prompt_len)
@@ -441,6 +452,13 @@ def main(argv: list[str] | None = None) -> int:
         "--mix-batch", type=int, default=60, help="sequences in a --mix-seeds batch"
     )
     parser.add_argument(
+        "--mix-attention",
+        choices=("gather", "triton", "both"),
+        default="gather",
+        help="decode attention of the --mix-seeds batches: the gather path, the Triton kernel "
+        "that reads the blocks in place (D-025), or both, interleaved within each seed",
+    )
+    parser.add_argument(
         "--skip-profile",
         action="store_true",
         help="skip the fixed-length profile (needs another measurement requested)",
@@ -503,26 +521,40 @@ def main(argv: list[str] | None = None) -> int:
             release_gpu_memory(args.device)
             keep("offline", offline[-1])
             print(f"offline, max batch {batch_size}: {offline[-1]['tokens_per_s']:.0f} tokens/s")
+        variants = {"gather": ["gather"], "triton": ["triton"], "both": ["gather", "triton"]}[
+            args.mix_attention
+        ]
+        kernels: dict[str, DecodeAttention | None] = {
+            name: None if name == "gather" else resolve_kernel(name) for name in variants
+        }
         for seed in [int(x) for x in args.mix_seeds.split(",") if x]:
             lengths = sample_mix_lengths(standard_requests(seed), args.mix_batch, seed)
-            pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
-            mix_results.append(
-                {
-                    **profile_batch(
-                        model, pool, batch_size=len(lengths), prompt_len=lengths, steps=args.steps
-                    ),
-                    "workload_seed": seed,
-                }
-            )
-            del pool
-            release_gpu_memory(args.device)
-            keep("mix", mix_results[-1])
-            m = mix_results[-1]
-            print(
-                f"mix seed {seed}, batch {m['batch_size']}: {m['wall_ms_per_step_median']:.2f} "
-                f"ms/step, GPU busy {m['gpu_busy_ms_per_step']:.2f}, padding x"
-                f"{m['context_mix']['padding_ratio']:.2f}"
-            )
+            for variant in variants:  # interleaved within a seed, so both see the same machine
+                pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
+                mix_results.append(
+                    {
+                        **profile_batch(
+                            model,
+                            pool,
+                            batch_size=len(lengths),
+                            prompt_len=lengths,
+                            steps=args.steps,
+                            decode_attention=kernels[variant],
+                        ),
+                        "workload_seed": seed,
+                        "attention": variant,
+                    }
+                )
+                del pool
+                release_gpu_memory(args.device)
+                keep("mix", mix_results[-1])
+                m = mix_results[-1]
+                print(
+                    f"mix seed {seed}, {variant}, batch {m['batch_size']}: "
+                    f"{m['wall_ms_per_step_median']:.2f} ms/step, GPU busy "
+                    f"{m['gpu_busy_ms_per_step']:.2f}, "
+                    f"padding x{m['context_mix']['padding_ratio']:.2f}"
+                )
         caches = {"on": [True], "off": [False], "both": [False, True]}[args.offline_prefix_cache]
         for seed in [int(x) for x in args.offline_workload_seeds.split(",") if x]:
             specs = standard_requests(seed)
@@ -551,6 +583,7 @@ def main(argv: list[str] | None = None) -> int:
         "results": results,
         "offline": offline,
         "mix": mix_results,
+        "mix_attention": args.mix_attention,
     }
     write_record(args.out, record)
     partial.unlink(missing_ok=True)

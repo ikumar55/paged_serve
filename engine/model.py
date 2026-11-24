@@ -139,12 +139,16 @@ class Attention(nn.Module):
 
         past = 0
         mask = None
-        if cache is not None:
-            past = cache.length
-            k, v = cache.update(layer, k, v)
-            mask = cache.attention_mask(tokens)
-
-        out = attend(q, k, v, past, mask)
+        if cache is not None and getattr(cache, "reads_in_place", False):
+            # A paged batch cache with a decode-attention kernel (D-025): it writes the new key
+            # and value into the pool and attends over the blocks there, with no gather.
+            out = cache.attend_in_place(layer, q, k, v)  # type: ignore[attr-defined]
+        else:
+            if cache is not None:
+                past = cache.length
+                k, v = cache.update(layer, k, v)
+                mask = cache.attention_mask(tokens)
+            out = attend(q, k, v, past, mask)
         merged = out.transpose(1, 2).reshape(batch, tokens, self.num_heads * self.head_dim)
         result: Tensor = self.o_proj(merged)
         return result

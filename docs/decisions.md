@@ -1340,6 +1340,41 @@ estimates are recorded here as if they were results.
   revert; nothing is claimed. Whatever the outcome, D-020 (graphs) is re-tested afterwards, since a
   shorter attention step raises the launch-overhead share.
 - **Time box:** about two working days and three GPU sessions.
+- **Build log (2026-11-24; the criteria above are unchanged).** *Step 1, written on the CPU-only
+  laptop, nothing run on a GPU yet:*
+  - `engine/paged_attention.py`: the `DecodeAttention` signature, a float64 reference
+    (`decode_attention_reference`, loops over the batch, indexes only each sequence's own blocks,
+    runs on a CPU) and `resolve_kernel`, which refuses to fall back quietly when the flag is on
+    but there is no GPU or no Triton.
+  - `engine/triton_paged_attention.py`: the kernel. One program per (sequence, key-value head);
+    the 4 query heads that share a key-value head are handled together; it walks the sequence's
+    block table one block at a time with an online softmax. Float32 multiply-and-sum, not
+    `tl.dot` (which may use TF32 on float32 inputs and would put the fp32 gate at risk; decode
+    attention is memory-bound, so the dot's tile shape buys nothing). The loop stops at the last
+    block the sequence really has, and the slots past the length in that block are masked on
+    load, so a padded table entry (block 0) and stale slots are never read. First version, no
+    split over the sequence length: if the step-time criterion (b) fails, an underfilled GPU
+    (512 programs at batch 64) is the first suspect, as the interpretation above already says.
+  - Plumbing, all opt-in and default off: `PagedBatchCache(caches, attention=fn)` writes the new
+    key and value and calls `fn` on the pool (`attend_in_place`); the model calls it when the
+    cache says `reads_in_place`; `Scheduler(decode_attention=fn)`; server flag
+    `--paged-attention-kernel` (llama backend and a GPU only; `/info` reports it);
+    `bench.scheduler_eval --paged-attention-kernel`; `bench.profile_decode --mix-attention
+    {gather,triton,both}` (both = interleaved within each seed, the form criterion (b) needs).
+    The gather path is untouched and stays the default.
+  - Tests (CPU, run here): the reference agrees with the gather path in float64 (block sizes 4
+    and 16, lengths 1, 16, 17, 32 included), cannot be affected by NaN in slots no sequence
+    owns, and is right when padded entries point at a block another sequence owns; the in-place
+    cache path gives the same logits as the gather path and never calls the gather; scheduler
+    tokens are identical to the default with and without forced preemption, with prefix-cache
+    hits (counted), and the function really is called once per layer per decode step; the flag's
+    error messages. Seven deliberate breakages of the code were each caught except one, an
+    equivalent mutant (reading one table entry too many is cut off by the later slice to the
+    length). GPU tests, to be run by hand on the machine: `tests/test_paged_attention_gpu.py`
+    (gate (a)(i): error at most twice the gather path's in fp32 and bf16 over five shapes and
+    five seeds, NaN-poison, owned block 0, strided queries, rejected inputs).
+  - Not yet known: whether the kernel compiles, whether it meets the 2x error gate (its `exp` is
+    the fast Triton one), and anything about speed.
 - **Measured effect:** none yet.
 
 ## Open verification items

@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from engine.config import LlamaConfig
 from engine.mock import MockModel, TimingModel
+from engine.paged_attention import DecodeAttention, resolve_kernel
 from engine.paged_cache import KVPool
 from engine.scheduler import LanguageModel, Scheduler, StepResult
 from engine.weights import load_model
@@ -262,6 +263,7 @@ def create_app(
         "model_id": model_id,
         "max_batch_size": scheduler.max_batch_size,
         "block_size": scheduler.pool.block_size,
+        "paged_attention_kernel": scheduler.decode_attention is not None,
         **(info or {}),
     }
 
@@ -388,6 +390,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--kv-cache-gb", type=float, default=4.0, help="memory for the paged KV cache"
     )
+    parser.add_argument(
+        "--paged-attention-kernel",
+        action="store_true",
+        help="decode attention reads the KV blocks in place with a Triton kernel instead of "
+        "gathering them into a padded tensor (D-025; needs a GPU; the default is the gather path)",
+    )
     mock = parser.add_argument_group("mock backend timing (placeholders, not measurements)")
     defaults = TimingModel()
     mock.add_argument("--mock-prefill-base-ms", type=float, default=defaults.prefill_base_ms)
@@ -402,6 +410,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default: local only)")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
+
+    if args.paged_attention_kernel and args.backend != "llama":
+        raise SystemExit("--paged-attention-kernel needs the llama backend")
+    decode_attention: DecodeAttention | None = None
+    if args.paged_attention_kernel:
+        try:
+            decode_attention = resolve_kernel("triton")
+        except RuntimeError as error:
+            raise SystemExit(f"--paged-attention-kernel: {error}") from error
 
     if args.backend == "llama":
         if args.model_dir is None:
@@ -446,6 +463,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pool,
         max_batch_size=args.max_batch_size,
         enable_prefix_caching=not args.no_prefix_caching,
+        decode_attention=decode_attention,
     )
     app = create_app(
         scheduler,

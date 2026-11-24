@@ -27,6 +27,7 @@ from torch import Tensor
 
 from engine.config import LlamaConfig
 from engine.kv_cache import KVCache
+from engine.paged_attention import DecodeAttention
 from engine.paged_cache import KVPool, PagedBatchCache, PagedSequenceCache
 from engine.prefix_cache import match_prefix
 
@@ -88,11 +89,15 @@ class Scheduler:
         pool: KVPool,
         max_batch_size: int = 8,
         enable_prefix_caching: bool = True,
+        decode_attention: DecodeAttention | None = None,
     ) -> None:
         if max_batch_size <= 0:
             raise ValueError("max_batch_size must be positive")
         self.model = model
         self.pool = pool
+        # None: the decode step gathers blocks into a padded tensor (the default, D-003).
+        # A function: it reads the blocks in place instead (D-025).
+        self.decode_attention = decode_attention
         self.max_batch_size = max_batch_size
         self.prefix_caching = enable_prefix_caching
         self.waiting: deque[Request] = deque()
@@ -245,7 +250,7 @@ class Scheduler:
             return
         batch = self.running
         caches = [self._caches[r.id] for r in batch]
-        step_cache = PagedBatchCache(caches)
+        step_cache = PagedBatchCache(caches, attention=self.decode_attention)
         last_tokens = torch.tensor(
             [[r.tokens()[-1]] for r in batch], dtype=torch.long, device=self.model.device
         )

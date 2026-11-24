@@ -23,8 +23,10 @@ Last updated: 2026-11-24.
 5. Where the data contradicts a claim, fix the claim first.
 
 **Current item: 4 (speed work), step 4: D-025, decode attention that reads the blocks in place**
-(planned, criteria fixed; nothing built yet: the next action is the kernel and its correctness
-tests). Done and recorded: step 1 (pass 5: capacity, attribution, eager control, prefix-cache
+(criteria fixed. **Built on the CPU-only laptop 2026-11-24, not yet run on a GPU:** the Triton
+kernel, the opt-in flag and plumbing, CPU tests and GPU tests written; the next action is the
+GPU session: monitor and self-test, kernel gate tests, then the measurements; see the build log
+in D-025). Done and recorded: step 1 (pass 5: capacity, attribution, eager control, prefix-cache
 correctness), step 2 (the D-021 follow-up: the real length mix doubles the step cost, the cache
 costs under 1%, the server adds 19 to 31% on top) and step 3 (the real-mix profile: the saturated
 step is GPU-bound, attention and gather 84% of GPU time, padded work x3.7, so **D-020 CUDA graphs

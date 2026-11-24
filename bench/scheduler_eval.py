@@ -37,6 +37,7 @@ from typing import Any
 
 import torch
 
+from engine.paged_attention import DecodeAttention, resolve_kernel
 from engine.paged_cache import KVPool
 from engine.scheduler import LanguageModel, Scheduler
 
@@ -58,6 +59,7 @@ def run_scheduler(
     n_tokens: int,
     config: SchedulerConfig,
     dtype: torch.dtype,
+    decode_attention: DecodeAttention | None = None,
 ) -> tuple[list[list[int]], dict[str, Any]]:
     """Serve every prompt to ``n_tokens`` new tokens; returns the outputs and scheduler counters."""
     pool = KVPool(model.cfg, config.num_blocks, BLOCK_SIZE, dtype, model.device)
@@ -66,6 +68,7 @@ def run_scheduler(
         pool,
         max_batch_size=config.max_batch_size,
         enable_prefix_caching=config.prefix_caching,
+        decode_attention=decode_attention,
     )
     for index, ids in enumerate(prompts):
         scheduler.add_request(index, list(ids), n_tokens)
@@ -210,6 +213,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="a recorded greedy-eval result: use its exact prompts (--prompts and --seed are "
         "then ignored); without it the prompts are regenerated from this repository's files",
     )
+    parser.add_argument(
+        "--paged-attention-kernel",
+        action="store_true",
+        help="decode attention reads the KV blocks in place with the Triton kernel (D-025); "
+        "the default is the gather path",
+    )
     return parser.parse_args(argv)
 
 
@@ -225,6 +234,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     args = parse_args(argv)
+    decode_attention = resolve_kernel("triton") if args.paged_attention_kernel else None
     path = args.out / f"scheduler-eval-{args.label}.json"
     if path.exists():
         raise SystemExit(f"{path} exists; result files are never overwritten")
@@ -288,7 +298,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     outputs: dict[str, list[list[int]]] = {}
     with torch.inference_mode():
         for config in configs_for(len(ids), args.tokens, max(len(p) for p in ids), args.max_batch):
-            produced, stats = run_scheduler(engine, ids, args.tokens, config, dtype)
+            produced, stats = run_scheduler(
+                engine, ids, args.tokens, config, dtype, decode_attention
+            )
             outputs[config.name] = produced
             comparison = compare(reference, produced)
             # a fingerprint of the outputs, so two runs can be compared without storing them
@@ -339,6 +351,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "torch": torch.__version__,
             "tokens": args.tokens,
             "block_size": BLOCK_SIZE,
+            "paged_attention_kernel": args.paged_attention_kernel,
             "prompt_set": prompt_meta,
             "reference": "transformers generate, greedy, EOS disabled, same device and dtype",
         },

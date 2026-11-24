@@ -21,6 +21,7 @@ from torch import Tensor
 
 from engine.block_allocator import BlockAllocator, OutOfBlocksError
 from engine.config import LlamaConfig
+from engine.paged_attention import DecodeAttention
 from engine.prefix_cache import hash_block
 
 
@@ -170,7 +171,11 @@ class PagedBatchCache:
     cannot hold the step fails before anything changes (the scheduler then preempts or waits).
     """
 
-    def __init__(self, caches: list[PagedSequenceCache]) -> None:
+    def __init__(
+        self,
+        caches: list[PagedSequenceCache],
+        attention: DecodeAttention | None = None,
+    ) -> None:
         if not caches:
             raise ValueError("a batch needs at least one sequence")
         self.pool = caches[0].pool
@@ -178,6 +183,9 @@ class PagedBatchCache:
             raise ValueError("all sequences in a batch must share one pool")
         self.caches = caches
         self.length = 0  # unused: positions and masks are per sequence
+        # With a decode-attention function (D-025) the model calls attend_in_place instead of
+        # update plus its own attention, and nothing is gathered. None keeps the gather path.
+        self.attention = attention
 
         allocator = self.pool.allocator
         needed = sum(cache.blocks_missing(cache.length + 1) for cache in caches)
@@ -202,6 +210,27 @@ class PagedBatchCache:
         ``k_new`` and ``v_new`` have shape ``[batch, kv_heads, 1, head_dim]``; the result has
         shape ``[batch, kv_heads, padded_len, head_dim]``.
         """
+        self._write_new(layer, k_new, v_new)
+        return self._gather(self.pool.k[layer]), self._gather(self.pool.v[layer])
+
+    @property
+    def reads_in_place(self) -> bool:
+        """True when attention reads the pool directly (the model then calls attend_in_place)."""
+        return self.attention is not None
+
+    def attend_in_place(self, layer: int, q: Tensor, k_new: Tensor, v_new: Tensor) -> Tensor:
+        """Write each sequence's new key and value, then attend over the pool without gathering.
+
+        ``q`` is ``[batch, heads, 1, head_dim]``; the result has the same shape.
+        """
+        if self.attention is None:
+            raise RuntimeError("no decode-attention function was given to this batch cache")
+        self._write_new(layer, k_new, v_new)
+        return self.attention(
+            q, self.pool.k[layer], self.pool.v[layer], self._tables, self._lengths
+        )
+
+    def _write_new(self, layer: int, k_new: Tensor, v_new: Tensor) -> None:
         if k_new.shape[0] != len(self.caches) or k_new.shape[2] != 1:
             raise ValueError("a batch step takes exactly one new token per sequence")
         block_size = self.pool.block_size
@@ -210,7 +239,6 @@ class PagedBatchCache:
         slot_offsets = self._lengths % block_size
         self.pool.k[layer, slot_blocks, :, slot_offsets] = k_new[:, :, 0, :]
         self.pool.v[layer, slot_blocks, :, slot_offsets] = v_new[:, :, 0, :]
-        return self._gather(self.pool.k[layer]), self._gather(self.pool.v[layer])
 
     def attention_mask(self, new_tokens: int) -> Tensor:
         """``[batch, 1, 1, padded_len]``: each sequence sees its cached tokens and its new one."""
