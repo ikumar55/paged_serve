@@ -17,6 +17,7 @@ which guarantees the oldest running sequence can always make progress (no livelo
 
 from __future__ import annotations
 
+import time
 from collections import deque
 from collections.abc import Collection
 from dataclasses import dataclass, field
@@ -117,6 +118,10 @@ class Scheduler:
         self.steps = 0
         self.decode_steps = 0
         self.decoded_sequences = 0
+        # Accounting only (D-028): wall seconds in each phase of ``step``, and what admission did.
+        self.phase_seconds = {"room": 0.0, "decode": 0.0, "admit": 0.0}
+        self.prefills = 0  # prompts admitted (each is one prefill forward pass)
+        self.prefill_tokens = 0  # prompt tokens actually computed (cached prefix blocks excluded)
 
     @property
     def has_work(self) -> bool:
@@ -169,9 +174,18 @@ class Scheduler:
     def step(self) -> StepResult:
         result = StepResult()
         self.steps += 1
+        clock = time.perf_counter
+        started = clock()
         self._make_room_for_decode(result)
+        room_done = clock()
         self._decode(result)
+        decode_done = clock()
         self._admit(result)
+        admit_done = clock()
+        phases = self.phase_seconds
+        phases["room"] += room_done - started
+        phases["decode"] += decode_done - room_done
+        phases["admit"] += admit_done - decode_done
         return result
 
     def abort(self, request_id: int) -> bool:
@@ -217,6 +231,11 @@ class Scheduler:
             "blocks_cached": allocator.num_cached,
             "block_evictions": allocator.evictions,
             "decode_steps": self.decode_steps,
+            "phase_room_s": self.phase_seconds["room"],
+            "phase_decode_s": self.phase_seconds["decode"],
+            "phase_admit_s": self.phase_seconds["admit"],
+            "prefills": self.prefills,
+            "prefill_tokens": self.prefill_tokens,
             "mean_decode_batch": self.decoded_sequences / self.decode_steps
             if self.decode_steps
             else 0.0,
@@ -302,6 +321,8 @@ class Scheduler:
             self.prefix_hit_tokens += cache.length
             self.prefix_prompt_tokens += len(tokens)
             ids = torch.tensor([tokens[cache.length :]], dtype=torch.long, device=self.model.device)
+            self.prefills += 1
+            self.prefill_tokens += ids.shape[1]
             logits = self.model(ids, cache=cache, last_only=True)
             self.running.append(request)
             result.prefilled.append(request.id)

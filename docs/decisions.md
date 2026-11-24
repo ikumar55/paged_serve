@@ -1892,7 +1892,20 @@ estimates are recorded here as if they were results.
   admission under 20%: the 14 ms estimate was wrong (the mean batch or the token count differs
   with graphs) and the cycle is mostly decode; record it and go back to the profile. (6) fails:
   the accounting is not free and the figures are read with that in mind.
-- **Measured effect:** none yet.
+- **Build log (2026-11-24, CPU only; the GPU machine was off limits, so nothing is measured).**
+  `Scheduler.phase_seconds` times the three phases of `step()` (making room, the batched decode,
+  admission with its prefills), and `prefills` and `prefill_tokens` count admitted prompts (a
+  preempted request that is admitted again counts again, since it is a forward pass) and the
+  prompt tokens actually computed (cached prefix blocks excluded); all five are in `stats()`,
+  so in `/info` and in the start and end records of every run. `bench/phase_report.py` turns
+  those records of a sweep directory into the table of the plan and prints the predicted ranges
+  beside the measured means. `deploy/gpu_d028.sh` is the session script (four seeds with the
+  kernel and graphs, then the report); it has **not been run**. Tests: 9 in
+  `tests/test_phase_report.py` (the counters on a tiny model with and without the prefix cache and
+  with forced preemption, a fake clock that gives each phase its own interval, the arithmetic of
+  the report on synthetic snapshots, the prediction ranges, the command line); eight deliberate
+  breakages of the accounting and the report are all caught; the CPU suite is 441 passed.
+- **Measured effect:** none yet. The measurement is waiting for the machine.
 
 ## Open verification items
 
