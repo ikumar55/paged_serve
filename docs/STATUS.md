@@ -111,8 +111,11 @@ the in-place Triton decode-attention kernel makes the real-mix decode step 52% s
 9.4 ms) and saturated engine throughput 1.55 times the gather path's (13.97 to 21.59 req/s, paired
 1.61, 1.42, 1.68, 1.49); CUDA graphs on top add 1.40 times (20.74 to 28.98 req/s, paired 1.44,
 1.42, 1.35, 1.38) and cut the inter-token latency p50 from about 16 to about 10 ms. In total about 2.1
-times the gather path; vLLM's 59.6 req/s (an earlier session) is then about 2.1 times this engine,
-from 4.2 times. Accuracy: fp32 output is identical to Hugging Face, and against fp32 the bf16
+times the gather path. Against vLLM (an earlier session, not remeasured): 59.6 req/s with 32
+sequences is about 2.1 times this engine (from 4.2 times), but with 64 sequences, the engine's own
+setting, vLLM delivered at least 82.6 req/s (a lower bound, load generator saturated, one seed),
+so the like-for-like gap is at least about 2.85 times. A same-session matched comparison is planned
+(roadmap item 11). Accuracy: fp32 output is identical to Hugging Face, and against fp32 the bf16
 error of the kernel and of the graph path equals the gather path's (mean logit error 0.1497
 against 0.1495; D-026, D-027, criteria chosen after the fact); the strict bf16 gates fixed in
 advance were missed by a near-tie and are recorded as failed.

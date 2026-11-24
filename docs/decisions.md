@@ -1251,9 +1251,12 @@ estimates are recorded here as if they were results.
     threads for the interpreter lock, so removing about 950 launches per step helps more than
     the isolated step profile shows (the profile has no server around it).
   - *Together:* gather path 13.97 req/s (D-025 session), kernel 21.6, kernel plus graphs 29.0,
-    about 2.1 times the gather path in total; against vLLM's 59.6 req/s of an earlier session
-    (not measured in these sessions, so only a rough comparison) the gap is about 2.1 times,
-    from 4.2 times.
+    about 2.1 times the gather path in total; against vLLM of an earlier session (not measured
+    in these sessions, so only a rough comparison) the gap is about 2.1 times with vLLM at 32
+    sequences (59.6 req/s, from 4.2 times) but **at least about 2.85 times with vLLM at 64
+    sequences** (82.6 req/s, one seed, a lower bound, D-019), which is the engine's own setting and
+    so the fairer comparison. (Correction, added the same evening after the second review: the
+    first version of this paragraph quoted only the 32-sequence figure.)
   - **Still not a claim:** gate (a)(ii) failed (bf16 outputs not hash-identical to the eager
     kernel path), each seed was run once per variant, one GPU, one model, one workload shape.
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at

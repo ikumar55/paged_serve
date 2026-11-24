@@ -43,8 +43,10 @@ step was GPU-bound, attention and gather 84% of GPU time); **step 4, the speed l
   are hash-identical to the eager kernel's; **its strict bf16 gate (identical tokens) failed**
   (padding changes the GEMM shape). **D-027** (post-hoc, written first) showed the graph path's
   bf16 accuracy equals the eager kernel's. Labelled diagnostic: a further **1.40 times**.
-- Together about 2.1 times the gather path (13.97 to 28.98 req/s); against vLLM's 59.6 req/s of an
-  earlier session (only a rough comparison) the gap is about 2.1 times, from 4.2 times. Quote these
+- Together about 2.1 times the gather path (13.97 to 28.98 req/s); against vLLM of an
+  earlier session (only a rough comparison) the gap is about 2.1 times with vLLM at 32 sequences
+  (59.6 req/s) but **at least about 2.85 times with vLLM at 64 sequences, the engine's own setting**
+  (82.6 req/s, a lower bound; found by the second review, D-019 already had the figure). Quote these
   figures only with both facts: the strict gates failed, and the accuracy standards were chosen
   after the fact (D-025, D-020 entries).
 
