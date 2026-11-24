@@ -1768,6 +1768,46 @@ estimates are recorded here as if they were results.
     float64 model; the criteria were chosen after the fact and the kernel was not changed to
     meet them.
 
+### D-027 Is the CUDA-graph path's bf16 accuracy as good as the gather path's? (PLANNED, criteria fixed before any run; they are POST-HOC)
+
+- **Status:** planned 2026-11-24; **nothing is built or run yet for this entry.** Follows from
+  D-020: with the kernel, CUDA graphs add 1.40 times at saturation in a diagnostic run, but the
+  graph path's bf16 outputs are not hash-identical to the eager kernel path's (criterion (a)(ii)
+  of D-020 amendment 2, recorded as failed), because padding the batch to a bucket changes the
+  matrix shape the GEMMs see. **As in D-026, these criteria are written after seeing the D-020
+  results, are a post-hoc choice, are labelled so, and do not change D-020's recorded outcome.**
+- **Question and hypothesis:** the same one as D-026, for the graph path: against an fp32
+  reference, is its bf16 logit error the gather path's? The D-020 evidence says the differences
+  are batch-shape effects at the rounding level (an eager control shows the same 1.8e-7 in fp32
+  between a batch of 1 and a batch of 2), so the hypothesis is that the graph path is exactly as
+  accurate as the eager kernel and the gather path.
+- **Design.** `bench.bf16_logit_error` gets a `--graphs` option that adds two variants to the
+  four of D-026: *fp32-graphs* (fp32, Triton kernel, replayed through a `CudaGraphDecoder`) and
+  *bf16-graphs* (the same for the bf16 model). The decoders are built for a maximum batch of 64,
+  so the 50 sequences of a prompt set run in the 56-row bucket with 6 padding rows, which is the
+  padded case that matters. Everything else is as in D-026: the same four prompt sets (the 50
+  frozen prompts and the shared-prefix prompts, seeds 0, 1 and 2; 200 prompts, 63 decode steps,
+  12,600 positions per variant), the fp32 gather path's own greedy tokens fed to every variant,
+  self-test first, monitor on. CPU tests first (capture off, float64 reference in place of the
+  kernel), then one GPU session.
+- **Success criteria (all required, fixed now), the graph variants against the gather path, as in
+  D-026:** (i) bf16 mean per-position maximum logit error at most 1.10 times the gather path's;
+  (ii) its 99th percentile at most 1.25 times the gather path's; (iii) flips against fp32 whose
+  truth margin is at least 0.125: at most 1.25 times the gather path's count plus 2; (iv) the
+  fp32 graph variant has 0 flips against truth and a mean error below 1e-4. In the same run the
+  eager kernel variants of D-026 are measured again, so the three bf16 paths are compared on the
+  same positions.
+- **Prediction, written now:** (i) and (ii) about 1.0 (0.95 to 1.05), (iii) the graph path's count
+  within a few of both others, (iv) holds, and the graph path is within 0.5% of the eager kernel
+  on (i).
+- **Interpretation, fixed now:** all four hold: the graph path is as accurate as the gather path
+  in bf16 against fp32 by this post-hoc standard; D-020's strict gate stays recorded as failed;
+  the graphs' speed figures (D-020 diagnostic) may be quoted **together with both facts** (the
+  strict gate failed; D-027's standard was chosen after the fact). Any of (i) to (iii) fails:
+  the graph path is measurably less accurate in bf16, nothing about graph speed is claimed, and
+  the finding is recorded. (iv) fails: a bug; stop.
+- **Time box:** this session. **Measured effect:** none yet.
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~
