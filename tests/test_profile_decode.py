@@ -111,6 +111,78 @@ def test_offline_throughput_serves_every_request_and_splits_the_time() -> None:
     assert result["decode_steps"] >= 6
 
 
+def test_standard_requests_are_the_load_generators_requests_for_a_seed() -> None:
+    from bench.workload import LengthDist, WorkloadConfig, generate_workload
+
+    specs = pd.standard_requests(seed=3, rate=4.0, duration_s=5.0)
+    assert len(specs) == 20
+    expected = generate_workload(
+        WorkloadConfig(
+            rate=4.0,
+            num_requests=20,
+            prompt=LengthDist(256, 0.7, 1, 2048),
+            output=LengthDist(128, 0.5, 1, 512),
+            seed=3,
+            vocab_size=100000,
+        )
+    )
+    assert specs == [(s.prompt_token_ids, s.max_tokens) for s in expected]
+    assert specs == pd.standard_requests(seed=3, rate=4.0, duration_s=5.0)  # deterministic
+    assert specs != pd.standard_requests(seed=4, rate=4.0, duration_s=5.0)
+    assert all(1 <= len(prompt) <= 2048 and 1 <= new <= 512 for prompt, new in specs)
+
+
+def test_offline_run_reports_the_cost_per_token_with_and_without_the_prefix_cache() -> None:
+    model = make_model(CFG)
+    shared = list(range(10, 42))  # eight full blocks of four tokens, common to every prompt
+    specs = [([*shared, 60 + i, 70 + i], 6 + i % 3) for i in range(8)]
+    with torch.inference_mode():
+        results = {
+            caching: pd.offline_run(
+                model,
+                KVPool(CFG, 256, 4, torch.float32, "cpu"),
+                specs,
+                max_batch_size=4,
+                prefix_caching=caching,
+            )
+            for caching in (False, True)
+        }
+    total = sum(new for _, new in specs)
+    for caching, result in results.items():
+        assert result["prefix_caching"] is caching
+        assert result["new_tokens_total"] == total
+        assert result["prompt_tokens_total"] == sum(len(p) for p, _ in specs)
+        assert result["ms_per_token"] == pytest.approx(1000 * result["elapsed_s"] / total)
+        assert result["tokens_per_s"] == pytest.approx(total / result["elapsed_s"])
+    assert results[False]["prefix_hit_tokens"] == 0
+    assert results[True]["prefix_hit_tokens"] > 0  # the shared prefix was served from the cache
+
+
+def test_render_offline_marks_workload_runs_and_still_renders_fixed_length_rows() -> None:
+    workload_row = {
+        "max_batch_size": 64,
+        "workload_seed": 2,
+        "prefix_caching": True,
+        "requests_per_s": 20.0,
+        "tokens_per_s": 2560.0,
+        "ms_per_token": 0.391,
+        "decode_share": 0.6,
+        "admit_share": 0.3,
+        "other_share": 0.1,
+        "mean_decode_batch": 40.0,
+        "preemptions": 0,
+        "block_evictions": 1234,
+    }
+    fixed_row = {
+        k: v
+        for k, v in workload_row.items()
+        if k not in ("workload_seed", "prefix_caching", "ms_per_token", "block_evictions")
+    }
+    text = pd.render_offline([workload_row, fixed_row])
+    assert "| 64 | 2 | on | 20.0 | 2560 | 0.391 | 60% | 30% | 10% | 40.0 | 0 | 1234 |" in text
+    assert "| 64 | fixed | - | 20.0 | 2560 | nan |" in text
+
+
 def test_render_offline_shows_a_row_per_batch_size() -> None:
     record = {
         "max_batch_size": 64,
@@ -122,7 +194,9 @@ def test_render_offline_shows_a_row_per_batch_size() -> None:
         "mean_decode_batch": 40.0,
         "preemptions": 0,
     }
-    assert "| 64 | 20.0 | 2560 | 60% | 30% | 10% | 40.0 | 0 |" in pd.render_offline([record])
+    assert "| 64 | fixed | - | 20.0 | 2560 | nan | 60% | 30% | 10% | 40.0 | 0 | - |" in (
+        pd.render_offline([record])
+    )
 
 
 def test_fill_batch_leaves_every_sequence_running_and_unfinished() -> None:
