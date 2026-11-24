@@ -1527,10 +1527,15 @@ estimates are recorded here as if they were results.
   included; error against float64 at most 0.57 times the gather path's) but **fails the fixed bf16
   gate by one divergence (0.1875 against 0.125)**, also after the one allowed fix; so by the
   pre-stated rule nothing is claimed and speed was not measured. See the build log above.
+  **Update, same day:** the diagnostic speed run (1.55 times at saturation) and D-026 (the kernel
+  is as accurate as the gather path in bf16 against fp32, by a post-hoc standard) allow the speed
+  figures to be quoted with both facts stated: the literal D-025 bf16 gate was missed by one
+  near-tie, and D-026's standard was chosen after the fact. The literal D-025 outcome is not
+  changed.
 
-### D-026 Is the kernel's bf16 accuracy as good as the gather path's? (PLANNED, criteria fixed before any run; they are POST-HOC)
+### D-026 Is the kernel's bf16 accuracy as good as the gather path's? (DONE: all four criteria met; the criteria are POST-HOC)
 
-- **Status:** planned 2026-11-24; **nothing is built or run yet.** Follows from D-025: the kernel
+- **Status:** planned 2026-11-24, built and run the same day (result at the end of this entry; the plan below is as it was written, with one wording clarification before any result existed). Follows from D-025: the kernel
   is correct in fp32 and 1.55 times faster at saturation in a diagnostic run, but it missed
   D-025's fixed bf16 gate by one near-tie (0.1875 against 0.125), and the single rounding fix
   allowed there did not remove it. **These criteria are written after seeing the D-025 results;
@@ -1578,7 +1583,45 @@ estimates are recorded here as if they were results.
   fact). Any of (i) to (iii) fails: the kernel is measurably less accurate in bf16 than the
   gather path, nothing about speed is claimed, and the finding (which positions, which bin) is
   recorded. (iv) fails: a bug; stop.
-- **Time box:** this session. **Measured effect:** none yet.
+- **Time box:** this session.
+- **Measured effect (2026-11-24, same Capsule RTX 5090 machine; commit `f9ba939`; self-test first;
+  monitor on, other users' CPU at most 0.005 cores, no foreign GPU process; the tool's 9 CPU
+  tests pass and every deliberate breakage of it is caught; `deploy/gpu_d026.sh`;
+  `results/bf16-logit-error-rtx5090-{frozen,prefix-s0,prefix-s1,prefix-s2}.json` and
+  `results/bf16-logit-error-report-rtx5090.json`).** 200 prompts, 63 decode steps, **12,600
+  positions per variant**, bf16 against the fp32 gather path:
+
+  | | bf16 gather path | bf16 kernel | kernel / gather |
+  | --- | ---: | ---: | ---: |
+  | mean of the per-position maximum logit error | 0.1495 | 0.1497 | **1.001** (limit 1.10) |
+  | 99th percentile of that error | 0.3959 | 0.3956 | **0.999** (limit 1.25) |
+  | flips against fp32, all | 85 | 86 | |
+  | flips against fp32 with truth margin at least 0.125 | 9 | 4 | **4 against a limit of 13.25** |
+
+  **(i), (ii), (iii) hold, and (iv) holds:** the fp32 kernel has 0 flips against truth and a mean
+  error of 1.7e-5 (limit 1e-4). The per-set figures agree (flips, gather and kernel: frozen 39 and
+  30; shared-prefix seeds 0, 1, 2: 9 and 9, 23 and 28, 14 and 19). **By the interpretation fixed
+  above: the kernel is as accurate as the gather path in bf16 against fp32, by this post-hoc
+  standard; D-025's literal gate stays recorded as failed; the D-025 speed figures may be quoted
+  with both facts stated.**
+  - *Prediction check.* The ratios were predicted at about 1.0 and are 1.001 and 0.999; (iii)
+    was predicted equal within a few and the kernel has fewer. The prediction that the D-025
+    near-tie (shared-prefix prompt 10, token 3) would appear as a kernel flip against fp32 was
+    **wrong**: neither the kernel nor the gather path flips there against fp32 in this lockstep
+    (all 50 sequences decoded as one batch). The D-025 flip arose in the scheduler's own batch
+    compositions (it moved between configurations and between sessions), so it looks like a
+    batch-dependent near-tie in a comparison between two bf16 computations; that is a reading
+    of this result, not something shown directly.
+  - *Scale of bf16 noise, for context:* against fp32, the bf16 paths' own maximum logit error is
+    about 0.15 on average and 0.40 at the 99th percentile, three times the 0.125 limit D-025
+    fixed, for the gather path and the kernel alike. A limit of one logit step on a comparison of
+    two bf16 computations was therefore tight; the gather path itself has 9 flips of margin 0.125
+    or more here, against 4 for the kernel.
+  - *Limits:* one GPU, one model, 200 prompts of two kinds; teacher-forced on fp32's own tokens,
+    a single batch composition (the whole set decoded together); fp32 as the truth is the
+    engine's own path (validated 50 of 50 against Hugging Face, D-019, D-025), not an independent
+    float64 model; the criteria were chosen after the fact and the kernel was not changed to
+    meet them.
 
 ## Open verification items
 
@@ -1620,3 +1663,4 @@ Design ideas taken from public papers and documentation; no code was copied.
 | 2026-11-24 | Scheduler cost per generated token offline on the server's own requests (real length mix) against fixed 256-token sequences, batch 64, prefix cache on (D-021) | ms per token, mean of 4 seeds | 0.187 (fixed lengths) | 0.382 (real mix), 2.04 times; the prefix cache adds 0.5 to 0.8% | `results/offline-workload-rtx5090.json`, `deploy/gpu_offline_workload.sh` |
 | 2026-11-24 | Decode step on the real length mix against fixed 256-token sequences, batch 60 to 64, same session, RTX 5090 (D-020 prerequisite) | Wall ms per step and GPU idle share | 7.81 ms, 20% idle (fixed lengths, batch 64) | 20.1 ms mean (14.6 to 25.4), 9% idle (7 to 12%); attention plus gather 84% of GPU time; padded work x3.7 | `results/profile-mix-rtx5090.json`, `deploy/gpu_mix_profile.sh` |
 | 2026-11-24 | **Diagnostic, not a claim (D-025, gate (a) failed in bf16):** Triton decode attention against the gather path, engine at 32 req/s offered, batch 64, four seeds paired, alternating order, RTX 5090; real-mix step at batch 60 | Delivered req/s, mean of 4 (min to max); median step ms | 13.97 req/s (13.05 to 15.17), step 20.1 ms mean (gather) | 21.59 req/s (21.35 to 21.95), paired ratio 1.55 (1.42 to 1.68), step 9.4 ms mean (52% shorter) | `results/d025-sat-{gather,kernel}-rtx5090-seed*/`, `results/profile-mix-d025-rtx5090.json`, `deploy/gpu_d025_speed.sh` |
+| 2026-11-24 | bf16 logit error against an fp32 reference, Triton decode kernel against the gather path, 200 prompts x 63 decode steps (12,600 positions), RTX 5090 (D-026, post-hoc criteria written before the run) | Mean of the per-position maximum logit error; flips with truth margin at least 0.125 | 0.1495 (gather path), 9 flips | 0.1497 (kernel), ratio 1.001, 4 flips | `results/bf16-logit-error-*-rtx5090*.json`, `deploy/gpu_d026.sh` |
