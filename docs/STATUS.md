@@ -295,6 +295,8 @@ session.
 - `docs/decisions.md`: D-001 to D-020 (D-018, the rented GPU, is a draft; D-019, the Capsule RTX
   5090, is in progress; D-020 is a planned experiment), each with decision, reasons, alternatives
   and measured effect.
+- `docs/roadmap.md`: the planned scope reconstructed (the original plan was lost) against what is
+  done and what remains; a living document.
 - `docs/independent-review-2026-11-24.md`: an independent, sceptical review of the claims against the
   raw data (unedited), with a status table of what has been done about each finding (a living
   document: update the table as findings are resolved).
