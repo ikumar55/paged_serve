@@ -12,9 +12,10 @@ ENGINE_PY="$PAGEDSERVE_WORK/venvs/pagedserve/bin/python"
 MODEL=models/Llama-3.2-1B-Instruct
 FROZEN=results/greedy-eval-rtx5090-bf16.json
 log() { echo "== $(date -u +%FT%TZ) $*"; }
-TAG=d027
+TAG=${TAG:-d027}
+PREFIX=${PREFIX:-graphs-rtx5090}  # result file labels; a rerun uses another TAG and PREFIX
 for f in results/selftest-before-$TAG.json results/machine-monitor-$TAG.jsonl \
-         results/bf16-logit-error-report-graphs-rtx5090.json; do
+         results/bf16-logit-error-report-$PREFIX.json; do
   [ -e "$f" ] && { log "STAGE-FAILED $f exists (write-once)"; exit 1; }
 done
 
@@ -30,17 +31,17 @@ rc=$?; log "self-test exit $rc"
 [ $rc -eq 0 ] || { log "STAGE-FAILED self-test: not measuring on this GPU"; exit 1; }
 
 "$ENGINE_PY" -m pytest tests/test_bf16_logit_error.py tests/test_cuda_graph.py -q -p no:cacheprovider 2>&1 | tail -2
-"$ENGINE_PY" -m bench.bf16_logit_error --model-dir $MODEL --out results --label graphs-rtx5090-frozen \
+"$ENGINE_PY" -m bench.bf16_logit_error --model-dir $MODEL --out results --label $PREFIX-frozen \
     --prompts-from "$FROZEN" --kv-cache-gb 1 --graphs
 log "frozen exit $?"
 for seed in 0 1 2; do
   "$ENGINE_PY" -m bench.bf16_logit_error --model-dir $MODEL --out results \
-      --label graphs-rtx5090-prefix-s$seed --prompts 50 --shared-prefix-groups 8 \
+      --label $PREFIX-prefix-s$seed --prompts 50 --shared-prefix-groups 8 \
       --shared-prefix-len 1024 --shared-prefix-suffix 64 --seed $seed --kv-cache-gb 4 --graphs
   log "prefix seed $seed exit $?"
 done
-"$ENGINE_PY" -m bench.bf16_logit_error report results/bf16-logit-error-graphs-rtx5090-*.json \
-    --out results/bf16-logit-error-report-graphs-rtx5090.json
+"$ENGINE_PY" -m bench.bf16_logit_error report results/bf16-logit-error-$PREFIX-*.json \
+    --out results/bf16-logit-error-report-$PREFIX.json
 log "report exit $?"
 sleep 6
 pkill -TERM -u "$(whoami)" -f '^[^ ]*python -m bench.machine_monitor'

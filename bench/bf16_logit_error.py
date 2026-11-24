@@ -90,6 +90,29 @@ def decode_step(variant: Variant, tokens: torch.Tensor) -> torch.Tensor:
     return logits[:, -1].float()
 
 
+def graph_statistics(variants: Sequence[Variant]) -> dict[str, dict[str, Any]]:
+    """What each graph variant's decoder did: replays, padded rows, eager fallbacks, by bucket.
+
+    Recorded in the result file so that a result can show the graphs were really replayed (with
+    padding rows), not only that the numbers came out.
+    """
+    return {
+        variant.name: {
+            "replays": variant.decoder.stats.replays,
+            "padded_rows": variant.decoder.stats.padded_rows,
+            "eager_fallbacks": variant.decoder.stats.eager_fallbacks,
+            "replays_by_bucket": {
+                str(size): count for size, count in variant.decoder.stats.by_bucket.items()
+            },
+            "buckets_captured": sorted(
+                size for size, b in variant.decoder.buckets.items() if b.graph is not None
+            ),
+        }
+        for variant in variants
+        if variant.decoder is not None
+    }
+
+
 def compare(
     truth: torch.Tensor, other: torch.Tensor
 ) -> tuple[list[float], list[bool], list[float]]:
@@ -411,6 +434,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "reference": "fp32 gather path, forced with its own greedy tokens",
         },
         "summaries": summaries,
+        "graph_statistics": graph_statistics(others),
         "records": {
             name: {
                 "max_error": record.max_error,

@@ -273,3 +273,37 @@ def test_the_report_adds_graph_criteria_only_when_graph_variants_exist(tmp_path:
     assert "criteria_graphs" in with_graphs and with_graphs["criteria_graphs"]["iv_pass"]
     without = ble.report([write("b.json", set(ble.VARIANTS))])
     assert "criteria_graphs" not in without
+
+
+def test_graph_statistics_show_the_replays_and_padding() -> None:
+    truth_model = make_model(CFG)
+    truth, others = ble.build_variants(
+        truth_model,
+        bf16_copy(truth_model),
+        decode_attention_reference,
+        num_blocks=200,
+        block_size=4,
+        device="cpu",
+        graphs=True,
+        graph_max_batch=8,
+        graph_capture=False,
+    )
+    assert ble.graph_statistics(others)["bf16-graphs"]["replays"] == 0  # nothing run yet
+    with torch.inference_mode():
+        ble.run_lockstep(truth, others, PROMPTS, 3)
+    stats = ble.graph_statistics(others)
+    assert set(stats) == set(ble.GRAPH_VARIANTS)  # only the variants that have a decoder
+    for entry in stats.values():
+        assert entry["replays"] == 3 and entry["eager_fallbacks"] == 0
+        assert entry["replays_by_bucket"] == {"4": 3}  # four prompts, the 4-row bucket
+        assert entry["buckets_captured"] == []  # capture is off on a CPU
+    # without graph variants there is nothing to report
+    plain = ble.build_variants(
+        truth_model,
+        bf16_copy(truth_model),
+        decode_attention_reference,
+        num_blocks=200,
+        block_size=4,
+        device="cpu",
+    )[1]
+    assert ble.graph_statistics(plain) == {}
