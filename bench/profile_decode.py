@@ -21,6 +21,7 @@ Usage (on a GPU machine):
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import statistics
 import time
@@ -119,6 +120,19 @@ def fill_batch(
     if len(scheduler.running) != batch_size:
         raise RuntimeError(f"only {len(scheduler.running)} of {batch_size} sequences are running")
     return scheduler
+
+
+def release_gpu_memory(device: torch.device | str) -> None:
+    """Free what the last run held, so a sequence of runs with big KV pools fits on one GPU."""
+    gc.collect()
+    if torch.device(device).type == "cuda":
+        torch.cuda.empty_cache()
+
+
+def write_record(path: Path, record: dict[str, Any]) -> None:
+    """Write the (possibly partial) result file; never overwrites."""
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(record, handle, indent=2, sort_keys=True)
 
 
 def sync(device: torch.device) -> None:
@@ -261,6 +275,11 @@ def offline_run(
     sync(device)
     elapsed = time.perf_counter() - started
     stats = scheduler.stats()
+    # The timing wrappers hold bound methods of the scheduler, a reference cycle that would keep
+    # the scheduler and its whole KV pool alive until the garbage collector next runs; on a GPU
+    # that is several gigabytes per run and the fifth run of a sequence ran out of memory.
+    del scheduler._decode
+    del scheduler._admit
     return {
         "max_batch_size": max_batch_size,
         "prefix_caching": prefix_caching,
@@ -374,8 +393,18 @@ def main(argv: list[str] | None = None) -> int:
     per_token = model.cfg.kv_bytes_per_token(torch.empty((), dtype=dtype).element_size())
     num_blocks = int(args.kv_cache_gb * 2**30 // (per_token * args.block_size))
     batch_sizes = [int(x) for x in args.batch_sizes.split(",")]
-    results = []
-    offline = []
+    results: list[dict[str, Any]] = []
+    offline: list[dict[str, Any]] = []
+    # Every finished run is also appended here as it completes, so a crash later in a long
+    # sequence loses nothing; the file is removed once the full result has been written.
+    partial = args.out.with_name(args.out.name + ".partial.jsonl")
+    if partial.exists() or args.out.exists():
+        parser.error(f"{args.out} or its partial file exists; result files are never overwritten")
+
+    def keep(kind: str, entry: dict[str, Any]) -> None:
+        with partial.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"kind": kind, **entry}, sort_keys=True) + "\n")
+
     with torch.inference_mode():
         for batch_size in [] if args.skip_profile else batch_sizes:
             pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
@@ -389,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             del pool
+            release_gpu_memory(args.device)
+            keep("profile", results[-1])
             print(f"batch {batch_size}: {results[-1]['wall_ms_per_step_median']:.2f} ms/step")
         for batch_size in batch_sizes if args.offline_requests else []:
             pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
@@ -403,6 +434,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             del pool
+            release_gpu_memory(args.device)
+            keep("offline", offline[-1])
             print(f"offline, max batch {batch_size}: {offline[-1]['tokens_per_s']:.0f} tokens/s")
         caches = {"on": [True], "off": [False], "both": [False, True]}[args.offline_prefix_cache]
         for seed in [int(x) for x in args.offline_workload_seeds.split(",") if x]:
@@ -415,6 +448,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     offline.append({**run, "workload_seed": seed})
                     del pool
+                    release_gpu_memory(args.device)
+                    keep("offline", offline[-1])
                     print(
                         f"offline workload seed {seed}, batch {batch_size}, cache "
                         f"{'on' if caching else 'off'}: {run['ms_per_token']:.3f} ms/token, "
@@ -430,8 +465,8 @@ def main(argv: list[str] | None = None) -> int:
         "results": results,
         "offline": offline,
     }
-    with args.out.open("x", encoding="utf-8") as handle:
-        json.dump(record, handle, indent=2, sort_keys=True)
+    write_record(args.out, record)
+    partial.unlink(missing_ok=True)
     if results:
         print(render(results))
     if offline:

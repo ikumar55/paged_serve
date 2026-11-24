@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Any
+
 import pytest
 import torch
 
@@ -156,6 +160,115 @@ def test_offline_run_reports_the_cost_per_token_with_and_without_the_prefix_cach
         assert result["tokens_per_s"] == pytest.approx(total / result["elapsed_s"])
     assert results[False]["prefix_hit_tokens"] == 0
     assert results[True]["prefix_hit_tokens"] > 0  # the shared prefix was served from the cache
+
+
+def test_offline_run_leaves_nothing_alive_for_the_garbage_collector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reference cycle kept every run's KV pool alive; the fifth GPU run ran out of memory."""
+    import gc
+    import weakref
+
+    created: list[weakref.ref[pd.Scheduler]] = []
+
+    class Tracked(pd.Scheduler):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            created.append(weakref.ref(self))
+
+    monkeypatch.setattr(pd, "Scheduler", Tracked)
+    model = make_model(CFG)
+    gc.collect()
+    gc.disable()  # only reference counting may free the scheduler
+    try:
+        with torch.inference_mode():
+            pd.offline_run(
+                model,
+                KVPool(CFG, 64, 4, torch.float32, "cpu"),
+                [([1, 2, 3], 4), ([4, 5, 6, 7], 3)],
+                max_batch_size=2,
+                prefix_caching=True,
+            )
+        assert created and created[0]() is None
+    finally:
+        gc.enable()
+
+
+def test_release_gpu_memory_is_harmless_on_the_cpu() -> None:
+    pd.release_gpu_memory("cpu")
+    pd.release_gpu_memory(torch.device("cpu"))
+
+
+def test_write_record_never_overwrites(tmp_path: Path) -> None:
+    path = tmp_path / "r.json"
+    pd.write_record(path, {"a": 1})
+    assert json.loads(path.read_text()) == {"a": 1}
+    with pytest.raises(FileExistsError):
+        pd.write_record(path, {"a": 2})
+
+
+def run_main_with_a_tiny_model(
+    monkeypatch: pytest.MonkeyPatch, out: Path, offline_run: Any = None
+) -> int:
+    import engine.weights
+
+    monkeypatch.setattr(engine.weights, "load_model", lambda *a, **k: (make_model(CFG), []))
+    monkeypatch.setattr(
+        pd, "standard_requests", lambda seed: [([1 + seed, 2, 3, 4], 4), ([5, 6, 7], 3)]
+    )
+    if offline_run is not None:
+        monkeypatch.setattr(pd, "offline_run", offline_run)
+    return pd.main(
+        [
+            "--model-dir", "unused", "--device", "cpu", "--dtype", "float32",
+            "--kv-cache-gb", "0.0005", "--block-size", "4", "--batch-sizes", "3",
+            "--skip-profile", "--offline-workload-seeds", "0,1", "--out", str(out),
+        ]
+    )  # fmt: skip
+
+
+def test_main_runs_each_seed_with_the_cache_off_then_on_and_removes_the_partial_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    out = tmp_path / "offline.json"
+    assert run_main_with_a_tiny_model(monkeypatch, out) == 0
+    record = json.loads(out.read_text())
+    runs = record["offline"]
+    assert [(r["workload_seed"], r["prefix_caching"]) for r in runs] == [
+        (0, False), (0, True), (1, False), (1, True),
+    ]  # fmt: skip
+    assert not (tmp_path / "offline.json.partial.jsonl").exists()
+
+
+def test_a_crash_partway_keeps_the_runs_that_finished(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    real = pd.offline_run
+    calls = {"n": 0}
+
+    def flaky(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("CUDA out of memory (simulated)")
+        return real(*args, **kwargs)
+
+    out = tmp_path / "offline.json"
+    with pytest.raises(RuntimeError, match="simulated"):
+        run_main_with_a_tiny_model(monkeypatch, out, offline_run=flaky)
+    assert not out.exists()  # the final record was never written
+    lines = (tmp_path / "offline.json.partial.jsonl").read_text().splitlines()
+    kept = [json.loads(line) for line in lines]
+    assert [(k["workload_seed"], k["prefix_caching"]) for k in kept] == [(0, False), (0, True)]
+    assert all(k["kind"] == "offline" for k in kept)
+
+
+def test_main_refuses_to_start_over_an_existing_result_or_partial_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    out = tmp_path / "offline.json"
+    out.write_text("{}")
+    with pytest.raises(SystemExit):
+        run_main_with_a_tiny_model(monkeypatch, out)
 
 
 def test_render_offline_marks_workload_runs_and_still_renders_fixed_length_rows() -> None:
