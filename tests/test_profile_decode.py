@@ -194,6 +194,76 @@ def test_offline_run_leaves_nothing_alive_for_the_garbage_collector(
         gc.enable()
 
 
+def test_sample_mix_lengths_are_prompt_plus_progress_and_deterministic() -> None:
+    specs = [([1] * (10 * (i + 1)), 5 + i) for i in range(12)]  # prompt 10..120, new 5..16
+    lengths = pd.sample_mix_lengths(specs, batch_size=6, seed=4)
+    assert lengths == pd.sample_mix_lengths(specs, batch_size=6, seed=4)
+    assert lengths != pd.sample_mix_lengths(specs, batch_size=6, seed=5)
+    assert len(lengths) == 6
+    for length in lengths:
+        assert any(len(p) <= length < len(p) + new for p, new in specs)  # inside some request
+    assert len(pd.sample_mix_lengths(specs, batch_size=12, seed=0)) == 12  # the whole list
+    with pytest.raises(ValueError):
+        pd.sample_mix_lengths(specs, batch_size=13, seed=0)  # cannot draw more than there are
+
+
+def test_padding_statistics_count_padded_positions_against_useful_ones() -> None:
+    stats = pd.padding_statistics([10, 20, 30], block_size=16, extra_tokens=2)
+    assert stats["context_mean"] == pytest.approx(22.0)
+    assert stats["context_max"] == 32.0
+    assert stats["padded_width"] == 32.0  # 32 tokens is exactly two blocks
+    assert stats["padding_ratio"] == pytest.approx(3 * 32 / 66)
+    assert pd.padding_statistics([16, 16], block_size=16)["padding_ratio"] == pytest.approx(1.0)
+    assert pd.padding_statistics([17, 1], block_size=16)["padded_width"] == 32.0  # a partial block
+
+
+def test_fill_batch_takes_a_list_of_lengths_and_sets_the_batch_size_from_it() -> None:
+    model = make_model(CFG)
+    pool = KVPool(CFG, 128, 4, torch.float32, "cpu")
+    with torch.inference_mode():
+        scheduler = pd.fill_batch(model, pool, batch_size=99, prompt_len=[3, 9, 6], new_tokens=8)
+    assert len(scheduler.running) == 3
+    assert sorted(len(r.prompt) for r in scheduler.running) == [3, 6, 9]  # the lengths given
+    assert all(len(r.generated) == 1 for r in scheduler.running)  # prefilled, none finished
+
+
+def test_profile_batch_on_a_mix_reports_the_padding_it_does() -> None:
+    model = make_model(CFG)
+    pool = KVPool(CFG, 256, 4, torch.float32, "cpu")
+    with torch.inference_mode():
+        result = pd.profile_batch(
+            model, pool, batch_size=0, prompt_len=[3, 12, 7], steps=2, warmup=1
+        )
+    assert result["batch_size"] == 3 and result["prompt_len"] == "mix"
+    mix = result["context_mix"]
+    assert mix["padding_ratio"] >= 1.0 and mix["context_max"] == 12 + 1 + 2
+    assert result["context_len_at_end"] is None
+
+
+def test_main_profiles_a_mix_per_seed_and_records_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import engine.weights
+
+    monkeypatch.setattr(engine.weights, "load_model", lambda *a, **k: (make_model(CFG), []))
+    monkeypatch.setattr(
+        pd, "standard_requests", lambda seed: [([1, 2, 3, 4, 5], 6), ([5, 6, 7], 4), ([8] * 7, 5)]
+    )
+    out = tmp_path / "mix.json"
+    code = pd.main(
+        [
+            "--model-dir", "unused", "--device", "cpu", "--dtype", "float32",
+            "--kv-cache-gb", "0.0005", "--block-size", "4", "--skip-profile",
+            "--mix-seeds", "0,1", "--mix-batch", "2", "--steps", "2", "--out", str(out),
+        ]
+    )  # fmt: skip
+    assert code == 0
+    record = json.loads(out.read_text())
+    assert [m["workload_seed"] for m in record["mix"]] == [0, 1]
+    assert all(m["batch_size"] == 2 and "padding_ratio" in m["context_mix"] for m in record["mix"])
+    assert not (tmp_path / "mix.json.partial.jsonl").exists()
+
+
 def test_release_gpu_memory_is_harmless_on_the_cpu() -> None:
     pd.release_gpu_memory("cpu")
     pd.release_gpu_memory(torch.device("cpu"))

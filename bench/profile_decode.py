@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import random
 import statistics
 import time
 from collections.abc import Sequence
@@ -100,20 +101,59 @@ def kernel_rows(prof: Any) -> list[tuple[str, int, float]]:
     return rows
 
 
+def sample_mix_lengths(
+    specs: Sequence[tuple[list[int], int]], batch_size: int, seed: int
+) -> list[int]:
+    """Context lengths of a batch caught at a random moment of a saturated server's life.
+
+    Each sequence is a request drawn from the workload (``specs``: prompt, new tokens) that has
+    already produced a uniformly random number of its new tokens, so its context is its prompt
+    plus that many. This is the mix of lengths one decode step really sees (D-020).
+    """
+    rng = random.Random(seed)
+    chosen = rng.sample(list(specs), batch_size)
+    return [len(prompt) + rng.randrange(new_tokens) for prompt, new_tokens in chosen]
+
+
+def padding_statistics(
+    lengths: Sequence[int], block_size: int, extra_tokens: int = 0
+) -> dict[str, float]:
+    """How much attention and gather work the padded batch does beyond what is needed.
+
+    The batched decode pads every sequence to the longest one's blocks, so it handles
+    ``batch x padded width`` token positions to use ``sum(lengths)`` of them.
+    """
+    grown = [length + extra_tokens for length in lengths]
+    padded_width = -(-max(grown) // block_size) * block_size
+    useful = sum(grown)
+    return {
+        "context_mean": useful / len(grown),
+        "context_max": float(max(grown)),
+        "padded_width": float(padded_width),
+        "padding_ratio": len(grown) * padded_width / useful,
+    }
+
+
 def fill_batch(
     model: LanguageModel,
     pool: KVPool,
     batch_size: int,
-    prompt_len: int,
+    prompt_len: int | Sequence[int],
     new_tokens: int,
     seed: int = 0,
 ) -> Scheduler:
-    """A scheduler with ``batch_size`` sequences prefilled and running, none finished."""
+    """A scheduler with sequences prefilled and running, none finished.
+
+    ``prompt_len`` is one length for ``batch_size`` sequences, or a list of lengths (one per
+    sequence, then ``batch_size`` is the list's length).
+    """
+    lengths = [prompt_len] * batch_size if isinstance(prompt_len, int) else list(prompt_len)
+    batch_size = len(lengths)
     scheduler = Scheduler(model, pool, max_batch_size=batch_size, enable_prefix_caching=False)
     generator = torch.Generator().manual_seed(seed)
     vocab = model.cfg.vocab_size
-    for request_id in range(batch_size):
-        prompt = torch.randint(0, vocab, (prompt_len,), generator=generator).tolist()
+    for request_id, length in enumerate(lengths):
+        prompt = torch.randint(0, vocab, (length,), generator=generator).tolist()
         scheduler.add_request(request_id, prompt, new_tokens)
     while scheduler.waiting:
         scheduler.step()
@@ -145,13 +185,23 @@ def profile_batch(
     pool: KVPool,
     *,
     batch_size: int,
-    prompt_len: int,
+    prompt_len: int | Sequence[int],
     steps: int,
     warmup: int = 5,
 ) -> dict[str, Any]:
-    """One batch size: wall time of decode steps, then kernel statistics of the same steps."""
+    """One batch: wall time of decode steps, then kernel statistics of the same steps.
+
+    ``prompt_len`` is one length for ``batch_size`` sequences, or a list of context lengths (a
+    mix; see :func:`sample_mix_lengths`), in which case the result also reports how much the
+    padded batch does beyond what is needed.
+    """
     new_tokens = warmup + 2 * steps + 8  # nobody finishes while we measure
     scheduler = fill_batch(model, pool, batch_size, prompt_len, new_tokens)
+    mix: dict[str, float] = {}
+    if not isinstance(prompt_len, int):
+        batch_size = len(prompt_len)
+        # the steps measured are the ones after warm-up, so on average this many tokens later
+        mix = padding_statistics(prompt_len, pool.block_size, extra_tokens=warmup + steps)
     device = model.device
     for _ in range(warmup):
         scheduler.step()
@@ -172,10 +222,12 @@ def profile_batch(
     summary = summarise_kernels(kernel_rows(prof), steps)
     wall_median = statistics.median(walls)
     busy = summary["gpu_busy_ms_per_step"]
+    fixed = prompt_len if isinstance(prompt_len, int) else None
     return {
         "batch_size": batch_size,
-        "prompt_len": prompt_len,
-        "context_len_at_end": prompt_len + warmup + 2 * steps,
+        "prompt_len": fixed if fixed is not None else "mix",
+        "context_len_at_end": None if fixed is None else fixed + warmup + 2 * steps,
+        **({"context_mix": mix} if mix else {}),
         "steps": steps,
         "wall_ms_per_step_median": wall_median,
         "wall_ms_per_step_min": min(walls),
@@ -380,13 +432,26 @@ def main(argv: list[str] | None = None) -> int:
         "interleaved within each seed)",
     )
     parser.add_argument(
+        "--mix-seeds",
+        default="",
+        help="comma separated: also profile one decode step of a batch whose context lengths are "
+        "drawn from the standard workload (see sample_mix_lengths), one batch per seed (D-020)",
+    )
+    parser.add_argument(
+        "--mix-batch", type=int, default=60, help="sequences in a --mix-seeds batch"
+    )
+    parser.add_argument(
         "--skip-profile",
         action="store_true",
-        help="only the offline runs (needs --offline-requests or --offline-workload-seeds)",
+        help="skip the fixed-length profile (needs another measurement requested)",
     )
     args = parser.parse_args(argv)
-    if args.skip_profile and not (args.offline_requests or args.offline_workload_seeds):
-        parser.error("--skip-profile needs --offline-requests or --offline-workload-seeds")
+    if args.skip_profile and not (
+        args.offline_requests or args.offline_workload_seeds or args.mix_seeds
+    ):
+        parser.error(
+            "--skip-profile needs --offline-requests, --offline-workload-seeds or --mix-seeds"
+        )
 
     dtype = getattr(torch, args.dtype)
     model, _ = load_model(args.model_dir, dtype, args.device)
@@ -395,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
     batch_sizes = [int(x) for x in args.batch_sizes.split(",")]
     results: list[dict[str, Any]] = []
     offline: list[dict[str, Any]] = []
+    mix_results: list[dict[str, Any]] = []
     # Every finished run is also appended here as it completes, so a crash later in a long
     # sequence loses nothing; the file is removed once the full result has been written.
     partial = args.out.with_name(args.out.name + ".partial.jsonl")
@@ -437,6 +503,26 @@ def main(argv: list[str] | None = None) -> int:
             release_gpu_memory(args.device)
             keep("offline", offline[-1])
             print(f"offline, max batch {batch_size}: {offline[-1]['tokens_per_s']:.0f} tokens/s")
+        for seed in [int(x) for x in args.mix_seeds.split(",") if x]:
+            lengths = sample_mix_lengths(standard_requests(seed), args.mix_batch, seed)
+            pool = KVPool(model.cfg, num_blocks, args.block_size, dtype, args.device)
+            mix_results.append(
+                {
+                    **profile_batch(
+                        model, pool, batch_size=len(lengths), prompt_len=lengths, steps=args.steps
+                    ),
+                    "workload_seed": seed,
+                }
+            )
+            del pool
+            release_gpu_memory(args.device)
+            keep("mix", mix_results[-1])
+            m = mix_results[-1]
+            print(
+                f"mix seed {seed}, batch {m['batch_size']}: {m['wall_ms_per_step_median']:.2f} "
+                f"ms/step, GPU busy {m['gpu_busy_ms_per_step']:.2f}, padding x"
+                f"{m['context_mix']['padding_ratio']:.2f}"
+            )
         caches = {"on": [True], "off": [False], "both": [False, True]}[args.offline_prefix_cache]
         for seed in [int(x) for x in args.offline_workload_seeds.split(",") if x]:
             specs = standard_requests(seed)
@@ -464,11 +550,14 @@ def main(argv: list[str] | None = None) -> int:
         "block_size": args.block_size,
         "results": results,
         "offline": offline,
+        "mix": mix_results,
     }
     write_record(args.out, record)
     partial.unlink(missing_ok=True)
     if results:
         print(render(results))
+    if mix_results:
+        print(render(mix_results))
     if offline:
         print(render_offline(offline))
     return 0
