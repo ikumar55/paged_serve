@@ -1211,6 +1211,21 @@ estimates are recorded here as if they were results.
     identical. As written in advance, **this is recorded as a failure of (a); nothing is claimed
     about graphs.** The code stays in the repository, opt-in and off by default, unclaimed (the
     default path was never changed by it, so there is nothing else to revert).
+- **Diagnostic speed measurement of graphs, planned 2026-11-24, written before it is run. NOT the
+  amended (b) and (c) and NO claim: gate (a)(ii) failed in bf16, and that rule stands.** Purpose:
+  to learn whether graphs are worth any further work (a D-027 on their bf16 accuracy, in the style
+  of D-026). Design as in amendment 2 with the alternation added: (1) the real-mix step profile,
+  four seeds, batch 60, kernel without and then with graphs, interleaved within each seed
+  (`bench.profile_decode --mix-attention triton-graphs`); (2) the engine at saturation, batch 64,
+  32 req/s offered, 60 s, four seeds, kernel and kernel plus graphs paired within each seed, in
+  alternating order (eager first on seeds 0 and 2). Predictions, written now: the step is 15 to
+  25% shorter (the GPU is idle at most 26% of it); the paired throughput ratio is 1.10 to 1.20; the
+  graph server completes all requests. Reading, fixed now: mean ratio at least 1.10 and every
+  seed at least 1.05: graphs would have met the amended (c) on the numbers, so a D-027 for their
+  bf16 accuracy is worth writing; the step at least 15% shorter but the ratio under 1.05 on any
+  seed: the rest of the server dominates and graphs stop here; the step less than 8% shorter:
+  the idle time is not launch gaps, and graphs stop here. Reported as diagnostic whatever it
+  shows.
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
   saturation, the server path and prefill are (see D-021), which is a result. (b) fails: graphs
   do not remove the launch overhead in this design. (a) fails: revert. All pass: record the gain
