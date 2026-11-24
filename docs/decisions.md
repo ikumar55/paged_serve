@@ -126,7 +126,35 @@ estimates are recorded here as if they were results.
 - **Why:** For a model this small at modest batch sizes, decode is dominated by kernel-launch and
   Python overhead, so CUDA graphs are expected to give the larger and lower-risk win. This is a
   hypothesis to confirm with profiling, not a result.
-- **Measured effect:** not yet measured.
+- **Measured effect:** the hypothesis was profiled (2026-11-23, RTX 5090, bf16, 16-token blocks,
+  prompts of 256 tokens, `bench/profile_decode.py`, `results/profile-decode-rtx5090.json`, 40
+  decode steps per batch size, machine monitor running and quiet); **no speed change has been made
+  yet.** One decode step of the engine as it is:
+
+  | Batch | Wall ms/step | GPU busy ms/step | GPU idle | Kernels/step | Attention | Gather/copy | Matmul |
+  | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 1 | 7.63 | 2.98 | 61% | 919 | 12% | 11% | 58% |
+  | 8 | 9.57 | 4.13 | 57% | 935 | 12% | 12% | 59% |
+  | 32 | 9.94 | 4.78 | 52% | 983 | 26% | 18% | 41% |
+  | 64 | 10.20 | 6.24 | 39% | 983 | 35% | 21% | 32% |
+
+  Reading it. (1) The step is launch-bound: about 920 to 980 kernels per step (57 to 61 per
+  layer), each costing 8 to 10 microseconds of wall time, and the GPU sits idle for 52 to 61% of
+  the step up to batch 32. The wall time of a step (7.6 to 10.2 ms) matches the inter-token
+  latency measured through the server in pass 1 (9 to 11 ms), so the HTTP layer is not the main
+  cost. This supports the hypothesis above for batch sizes up to 32. If every launch gap were
+  removed (CUDA graphs) the step could not fall below its GPU busy time: **4.8 ms at batch 32, 2.1
+  times faster at most**, an upper bound that ignores graph replay cost and the dynamic shapes of
+  the gather. (2) It is not only launch overhead. The GPU busy time alone (4.1 ms at batch 8, 4.8
+  at batch 32) is already above vLLM's whole inter-token latency of 2 to 3 ms at 16 req/s (the
+  batch sizes are not matched, so this is indicative), and attention plus the gather and copy
+  kernels take 44% of the GPU time at batch 32 and 56% at batch 64, rising with batch and context:
+  the cost of rebuilding contiguous keys and values every layer and every step, then a masked
+  attention over the padding. Matmul time at batch 1 (about 1.7 ms) is near the time to read the
+  2.5 GB of weights once at this GPU's memory bandwidth (about 1.4 ms), so the weights are not the
+  problem at small batch. (3) So **both** levers matter: CUDA graphs or fewer, fused kernels for the
+  launch overhead, and a fused paged-attention kernel (reading blocks in place) for the gather.
+  Which is larger in end-to-end throughput is untested. One GPU, one prompt length, bf16.
 
 ### D-004 Scheduler: iteration-level batching, admission by free blocks, preemption by recompute
 
@@ -144,8 +172,17 @@ estimates are recorded here as if they were results.
   that could never fit in the pool alone is refused when submitted, so the oldest running
   sequence can always finish. Prefill is not chunked, so a long prompt delays the decode of the
   others for that step.
-- **Measured effect:** correctness only; nothing about speed or memory has been measured.
-  Llama-3.2-1B-Instruct, fp32, on a CPU (local run, `tests/test_real_llama_scheduler.py`): 16
+- **Measured effect on speed (2026-11-23, RTX 5090, D-019):** through the server with this
+  scheduler the engine delivers 14.4 req/s at 16 req/s offered against 9.0 for Hugging Face static
+  batching (1.6 times; four seeds, ranges 13.5 to 15.1 and 8.4 to 9.4), whose static batches wasted
+  48 to 63% of their decode slots in pass 1; the engine keeps up to about 12 req/s. A decode step
+  costs 7.6 to 10.2 ms from batch 1 to 64 (D-003), so a larger batch is almost free and the
+  scheduler's job is to keep batches full; why the engine saturates near 14 req/s and not higher
+  (one-at-a-time prefills, each launch-bound like a decode step, are a suspect) is not measured.
+  **Caveat:** the sweeps count successful requests but do not compare the generated tokens with a
+  reference, and the scheduler path has not been checked against Hugging Face on a GPU (below,
+  only a CPU run); the speed numbers assume the engine served correct text.
+- **Measured effect on correctness:** Llama-3.2-1B-Instruct, fp32, on a CPU (local run, `tests/test_real_llama_scheduler.py`): 16
   prompts (6 sentences and 10 random-token sequences from the shared 50) of 24 new tokens each,
   compared with Hugging Face `generate` on the same CPU. With a pool large enough for the whole
   batch (batch size 8, no preemption) all 16 outputs were identical to Hugging Face's, token for
