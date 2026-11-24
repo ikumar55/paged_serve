@@ -1392,6 +1392,33 @@ estimates are recorded here as if they were results.
   packed tensor, and asserted that it was not. The log of that run is kept as it was (write-once);
   the test was fixed (a slice of a wider tensor, a genuinely strided query) and is re-run in
   session 2. The gate on the scheduler (a)(ii) is not run yet, and nothing is known about speed.
+- **GPU session 2 (2026-11-24, same machine, self-test passed first, monitor on, nobody else on the
+  GPU, other users' CPU at most 0.01 cores; code = commit `df84597`; `deploy/gpu_d025_eval.sh`;
+  results `results/d025-kernel-gate-2.log`, `results/d025-eval-session.log` and
+  `results/scheduler-eval-rtx5090-{fp32,bf16}-{frozen,prefix}-d025kernel.json`; the same 50 frozen
+  prompts and the same shared-prefix settings as the recorded gather-path runs).**
+  - **(a)(iii), the GPU kernel tests: 15 of 15 pass** (the test fixed after session 1).
+  - **(a)(ii), fp32, the criterion is met.** Frozen prompts: 50 of 50 identical to Hugging Face in
+    all three configurations (served, no prefix cache, preempting with 35 forced preemptions).
+    Shared-prefix prompts: 50 of 50 in all three, with the cache hit (43,008 prompt tokens served
+    from cached blocks) and the cache on against off identical 50 of 50.
+  - **(a)(ii), bf16, the criterion as written is NOT met, by one divergence.** The criterion says
+    every divergence must be within one bf16 logit step (0.125) in Hugging Face's own logits.
+    Of 66 bf16 divergences (frozen: 21, 17, 21 in the three configurations; shared-prefix: 7, 9,
+    9), 65 are at most 0.125 and **one is 0.1875**: shared-prefix prompt 10, config
+    "no-prefix-cache", first divergence at generated token 3, where Hugging Face's own top-1 beat
+    its top-2 by exactly 0.1875 and the scheduler (with the kernel) chose the second. Three
+    facts for reading it, none of which changes the verdict: (1) the same prompt set on the
+    gather path had a largest gap of 0.125; (2) at that logit size bf16 resolves 0.0625, so 0.1875
+    is three resolution steps, a near tie; (3) with the kernel more prompts diverge in bf16 than
+    on the gather path in the frozen run (identical: 29, 33 and 29 of 50 for no-cache,
+    preempting and served, against 35, 32 and 35) and fewer in the shared-prefix run (43, 41 and
+    41 against 41, 39 and 39), so the kernel's rounding differs from the gather path's without
+    being clearly worse, but this is one run each and the run-to-run spread of divergences was
+    not measured for the kernel. By the rule
+    fixed above, "(a) fails: fix it or revert; nothing is claimed", so **no speed claim can be
+    made yet**; the criterion has not been changed, because results exist.
+  - Not yet run: (a)(iv) a server run with zero failed requests, and (b) and (c), the speed.
 - **Measured effect:** none yet.
 
 ## Open verification items

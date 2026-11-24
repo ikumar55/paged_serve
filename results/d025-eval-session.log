@@ -1,0 +1,50 @@
+== 2026-11-24T19:22:35Z d025-eval start; gpu: 0 %, 2 MiB
+383e14e045b21090868ca501d55727d52ee5b42002cdf9f32b77cb3ef52deff6  <home>/pagedserve_work/tmp/d025-code.tgz
+== 2026-11-24T19:22:35Z code installed, commit df8459712b6e866b2e454ed526034e38b0c511de
+== 2026-11-24T19:22:44Z self-test exit 0
+== 2026-11-24T19:22:49Z kernel gate tests exit 0
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:  45%|████▌     | 66/146 [00:00<00:00, 645.96it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 777.76it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+reference done in 19s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+served: 50/50 identical, 0 preemptions
+no-prefix-cache: 50/50 identical, 0 preemptions
+preempting: 50/50 identical, 35 preemptions
+prefix cache on vs off: 50/50 identical, 0 prompt tokens served from cache
+wrote results/scheduler-eval-rtx5090-fp32-frozen-d025kernel.json
+== 2026-11-24T19:23:19Z scheduler-eval fp32-frozen-d025kernel exit 0
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:  52%|█████▏    | 76/146 [00:00<00:00, 714.14it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 849.41it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+reference done in 24s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+served: 50/50 identical, 0 preemptions
+no-prefix-cache: 50/50 identical, 0 preemptions
+preempting: 50/50 identical, 0 preemptions
+prefix cache on vs off: 50/50 identical, 43008 prompt tokens served from cache
+wrote results/scheduler-eval-rtx5090-fp32-prefix-d025kernel.json
+== 2026-11-24T19:23:58Z scheduler-eval fp32-prefix-d025kernel exit 0
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 10831.09it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+reference done in 19s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+served: 29/50 identical, 0 preemptions
+no-prefix-cache: 29/50 identical, 0 preemptions
+preempting: 33/50 identical, 35 preemptions
+prefix cache on vs off: 50/50 identical, 0 prompt tokens served from cache
+wrote results/scheduler-eval-rtx5090-bf16-frozen-d025kernel.json
+== 2026-11-24T19:24:27Z scheduler-eval bf16-frozen-d025kernel exit 0
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 10975.72it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+reference done in 20s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+served: 41/50 identical, 0 preemptions
+no-prefix-cache: 43/50 identical, 0 preemptions
+preempting: 41/50 identical, 0 preemptions
+prefix cache on vs off: 42/50 identical, 43008 prompt tokens served from cache
+wrote results/scheduler-eval-rtx5090-bf16-prefix-d025kernel.json
+== 2026-11-24T19:24:56Z scheduler-eval bf16-prefix-d025kernel exit 0
+== 2026-11-24T19:25:06Z D025-EVAL-DONE

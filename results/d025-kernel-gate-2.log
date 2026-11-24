@@ -1,0 +1,90 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0 -- <home>/pagedserve_work/venvs/pagedserve/bin/python
+rootdir: <home>/pagedserve_work/paged_serve
+configfile: pyproject.toml
+plugins: anyio-4.16.0
+collecting ... collected 15 items
+
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[batch60-fp32] batch60 torch.float32 seed 0: gather 9.565e-07 kernel 2.413e-07
+batch60 torch.float32 seed 1: gather 8.714e-07 kernel 2.713e-07
+batch60 torch.float32 seed 2: gather 8.057e-07 kernel 4.181e-07
+batch60 torch.float32 seed 3: gather 1.247e-06 kernel 3.486e-07
+batch60 torch.float32 seed 4: gather 7.588e-07 kernel 3.154e-07
+batch60 torch.float32: worst kernel/gather error ratio 0.52
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[batch60-bf16] batch60 torch.bfloat16 seed 0: gather 3.971e-03 kernel 3.842e-03
+batch60 torch.bfloat16 seed 1: gather 4.253e-03 kernel 3.879e-03
+batch60 torch.bfloat16 seed 2: gather 4.716e-03 kernel 3.805e-03
+batch60 torch.bfloat16 seed 3: gather 4.474e-03 kernel 3.821e-03
+batch60 torch.bfloat16 seed 4: gather 3.979e-03 kernel 3.893e-03
+batch60 torch.bfloat16: worst kernel/gather error ratio 0.98
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[boundaries-fp32] boundaries torch.float32 seed 0: gather 7.384e-07 kernel 3.174e-07
+boundaries torch.float32 seed 1: gather 1.115e-06 kernel 1.961e-07
+boundaries torch.float32 seed 2: gather 9.381e-07 kernel 2.500e-07
+boundaries torch.float32 seed 3: gather 7.904e-07 kernel 2.063e-07
+boundaries torch.float32 seed 4: gather 1.290e-06 kernel 4.402e-07
+boundaries torch.float32: worst kernel/gather error ratio 0.43
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[boundaries-bf16] boundaries torch.bfloat16 seed 0: gather 4.088e-03 kernel 3.842e-03
+boundaries torch.bfloat16 seed 1: gather 4.204e-03 kernel 3.894e-03
+boundaries torch.bfloat16 seed 2: gather 3.766e-03 kernel 3.766e-03
+boundaries torch.bfloat16 seed 3: gather 4.368e-03 kernel 3.876e-03
+boundaries torch.bfloat16 seed 4: gather 3.602e-03 kernel 3.602e-03
+boundaries torch.bfloat16: worst kernel/gather error ratio 1.00
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[long-fp32] long torch.float32 seed 0: gather 5.159e-07 kernel 2.844e-07
+long torch.float32 seed 1: gather 8.857e-07 kernel 2.856e-07
+long torch.float32 seed 2: gather 6.913e-07 kernel 2.624e-07
+long torch.float32 seed 3: gather 6.244e-07 kernel 3.372e-07
+long torch.float32 seed 4: gather 5.580e-07 kernel 3.198e-07
+long torch.float32: worst kernel/gather error ratio 0.57
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[long-bf16] long torch.bfloat16 seed 0: gather 6.580e-03 kernel 6.580e-03
+long torch.bfloat16 seed 1: gather 4.645e-03 kernel 4.480e-03
+long torch.bfloat16 seed 2: gather 5.889e-03 kernel 3.906e-03
+long torch.bfloat16 seed 3: gather 5.261e-03 kernel 3.831e-03
+long torch.bfloat16 seed 4: gather 6.943e-03 kernel 6.943e-03
+long torch.bfloat16: worst kernel/gather error ratio 1.00
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[ragged-fp32] ragged torch.float32 seed 0: gather 1.180e-06 kernel 3.697e-07
+ragged torch.float32 seed 1: gather 8.043e-07 kernel 4.106e-07
+ragged torch.float32 seed 2: gather 1.146e-06 kernel 4.019e-07
+ragged torch.float32 seed 3: gather 1.056e-06 kernel 4.185e-07
+ragged torch.float32 seed 4: gather 8.282e-07 kernel 4.226e-07
+ragged torch.float32: worst kernel/gather error ratio 0.51
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[ragged-bf16] ragged torch.bfloat16 seed 0: gather 7.704e-03 kernel 7.704e-03
+ragged torch.bfloat16 seed 1: gather 7.288e-03 kernel 7.288e-03
+ragged torch.bfloat16 seed 2: gather 7.929e-03 kernel 7.696e-03
+ragged torch.bfloat16 seed 3: gather 8.264e-03 kernel 7.361e-03
+ragged torch.bfloat16 seed 4: gather 7.727e-03 kernel 7.727e-03
+ragged torch.bfloat16: worst kernel/gather error ratio 1.00
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[single-fp32] single torch.float32 seed 0: gather 6.207e-07 kernel 1.162e-07
+single torch.float32 seed 1: gather 5.135e-07 kernel 1.983e-07
+single torch.float32 seed 2: gather 8.799e-07 kernel 1.646e-07
+single torch.float32 seed 3: gather 7.081e-07 kernel 1.356e-07
+single torch.float32 seed 4: gather 4.461e-07 kernel 1.559e-07
+single torch.float32: worst kernel/gather error ratio 0.39
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[single-bf16] single torch.bfloat16 seed 0: gather 1.891e-03 kernel 1.891e-03
+single torch.bfloat16 seed 1: gather 1.364e-03 kernel 1.126e-03
+single torch.bfloat16 seed 2: gather 1.254e-03 kernel 9.757e-04
+single torch.bfloat16 seed 3: gather 1.851e-03 kernel 1.851e-03
+single torch.bfloat16 seed 4: gather 2.200e-03 kernel 1.778e-03
+single torch.bfloat16: worst kernel/gather error ratio 1.00
+PASSED
+tests/test_paged_attention_gpu.py::test_kernel_never_reads_slots_no_sequence_owns[fp32] PASSED
+tests/test_paged_attention_gpu.py::test_kernel_never_reads_slots_no_sequence_owns[bf16] PASSED
+tests/test_paged_attention_gpu.py::test_padded_entries_pointing_at_an_owned_block_zero_are_not_read PASSED
+tests/test_paged_attention_gpu.py::test_kernel_accepts_the_queries_the_model_produces PASSED
+tests/test_paged_attention_gpu.py::test_kernel_rejects_what_it_cannot_do PASSED
+
+=============================== warnings summary ===============================
+tests/test_paged_attention_gpu.py::test_kernel_error_is_at_most_twice_the_gather_paths[batch60-fp32]
+  <home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+    warn_once(FP_FUSION_DEFAULT_WARNING)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 15 passed, 1 warning in 4.02s =========================

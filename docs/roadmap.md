@@ -23,10 +23,11 @@ Last updated: 2026-11-24.
 5. Where the data contradicts a claim, fix the claim first.
 
 **Current item: 4 (speed work), step 4: D-025, decode attention that reads the blocks in place**
-(criteria fixed. **Built on the CPU-only laptop 2026-11-24, not yet run on a GPU:** the Triton
-kernel, the opt-in flag and plumbing, CPU tests and GPU tests written; the next action is the
-GPU session: monitor and self-test, kernel gate tests, then the measurements; see the build log
-in D-025). Done and recorded: step 1 (pass 5: capacity, attribution, eager control, prefix-cache
+(criteria fixed. **Built 2026-11-24; GPU sessions 1 and 2 done:** the kernel compiles, passes the
+error gate and the 15 GPU tests, and the scheduler is 50 of 50 identical to Hugging Face in fp32
+(preemptions and prefix-cache hits included). **One bf16 divergence (0.1875) is over the
+pre-fixed 0.125 limit, so gate (a)(ii) is not met as written and nothing is claimed;** the owner
+decides how to proceed (D-025 build log). Speed (b) and (c) not measured.) Done and recorded: step 1 (pass 5: capacity, attribution, eager control, prefix-cache
 correctness), step 2 (the D-021 follow-up: the real length mix doubles the step cost, the cache
 costs under 1%, the server adds 19 to 31% on top) and step 3 (the real-mix profile: the saturated
 step is GPU-bound, attention and gather 84% of GPU time, padded work x3.7, so **D-020 CUDA graphs
