@@ -80,14 +80,18 @@ Hugging Face static (batch 64, 20 ms window) **9.0 (8.4 to 9.4)**, this engine (
 (13.5 to 15.1)**, vLLM **15.8 (15.5 to 16.2)**. **Read that cell with care:** the metric is
 capped by the arrivals (about 15.95 req/s at 16 offered, for these seeds), so it barely tells the
 engine and vLLM apart; capacity is the saturated rate. The engine keeps up to about 12 req/s and
-is at its edge at 16; Hugging Face queues from 4 req/s and saturates near 7 to 9 req/s; vLLM kept
-up at every rate up to 48 req/s and saturates near 60 req/s (8,700 tokens/s), which is **at least
-4 times what the engine has delivered** (the engine's own saturated throughput is being measured
-at higher offered rates). The engine's inter-token latency is 9 to 11 ms at low load against
-vLLM's 2 to 3 ms, and 22 to 27 ms at 16 req/s; the decode-step profile (D-003) shows the step is
-launch-bound, and an offline run shows the scheduler alone could deliver 2.6 times what the
-server does at saturation. Spread across seeds is 2 to 16%. One GPU, one model, one workload
-shape. Tables: `results/variation-*-rtx5090.md`.
+is at its edge at 16; Hugging Face queues from 4 req/s and saturates near 7 to 9 req/s.
+**Capacity (pass 5, offered above capacity, four seeds paired, `results/saturation-rtx5090.md`):**
+engine batch 64 **14.2 req/s (13.2 to 16.0)**, 2,050 tokens/s; vLLM (32 sequences) **59.6 req/s
+(58.7 to 60.8)**, 8,630 tokens/s, so **vLLM delivers 4.2 times the engine (3.7 to 4.5)**;
+Hugging Face's best is 9.0 req/s, so the engine leads it by about 1.6 times. With CUDA graphs
+disabled vLLM falls to about 29 req/s, so graphs are worth about 2 times of its capacity and the
+engine is still about 2 times behind eager vLLM. The engine's inter-token latency is 9 to 11 ms at
+low load against vLLM's 2 to 3 ms, and 22 to 27 ms at 16 req/s; the decode-step profile (D-003)
+shows the step is launch-bound at small batches, and at saturation the engine thread is busy
+inside the scheduler step 97 to 98% of the time, a step about 2.5 times slower than the
+fixed-length profile (D-021); why is the next measurement. Spread across seeds is 2 to 16%. One
+GPU, one model, one workload shape. Tables: `results/variation-*-rtx5090.md`.
 
 **Prefix cache (shared-prefix workload, 8 x 1024-token prefixes):** the engine's hit rate was 89 to
 92% with the cache on; median time to first token fell 17 to 22% (32 against 41 ms at 4 req/s) and,
