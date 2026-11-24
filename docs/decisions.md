@@ -1563,10 +1563,10 @@ estimates are recorded here as if they were results.
   (i) bf16 mean of the per-position maximum absolute logit error: kernel at most 1.10 times
   the gather path's; (ii) its 99th percentile: kernel at most 1.25 times the gather path's;
   (iii) flips whose truth margin is at least 0.125 (not near-ties): kernel count at most 1.25
-  times the gather path's plus 2; (iv) fp32 sanity: fp32-kernel flips against truth: 0, and its
-  mean error at most 2 times the gather path's own fp32-against-fp32 (that is, truth against
-  itself is zero by construction, so the check is that fp32-kernel's mean error is below 1e-4,
-  the size of fp32 noise on this model, D-019).
+  times the gather path's plus 2; (iv) fp32 sanity: the fp32-kernel variant has 0 flips against truth
+  and a mean per-position maximum logit error below 1e-4 (the size of fp32 noise on this model,
+  D-019). (Wording clarified 2026-11-24, before any result existed; the numbers are as first
+  written.)
 - **Prediction, written now:** (i) ratio about 1.0 (0.9 to 1.1), (ii) about 1.0, (iii) the counts
   are equal within a few, (iv) holds. I expect the near-tie of D-025 (prompt 10, token 3 of the
   shared-prefix set) to show up as a flip of the kernel and not of the gather path in the
