@@ -42,9 +42,26 @@ pytestmark = [
     pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA GPU"),
 ]
 
-# The project target for fp32 logits (docs/decisions.md, D-010).
-FP32_LOGIT_TARGET = 1e-3
+# The fp32 contract on a GPU (docs/decisions.md, D-019). The earlier fixed target of 1e-3 against
+# Hugging Face on the CPU (D-010) is kept for the CPU tests, but a GPU's own fp32 output differs
+# from the CPU's by an amount that depends on the card (1.19e-3 for Hugging Face itself on an
+# RTX 5090), so a fixed bound against the CPU tests the card and not the engine. Two checks that
+# do test the engine: it must reproduce Hugging Face on the same GPU almost exactly, and it must
+# be no further from the CPU reference than Hugging Face's own GPU run is.
+SAME_GPU_TOLERANCE = 1e-4
+FLOOR_MARGIN = 1.05
 DEVICE = "cuda"
+
+
+def assert_fp32_contract(vs_cpu: float, vs_hf_gpu: float, floor: float) -> None:
+    assert vs_hf_gpu <= SAME_GPU_TOLERANCE, (
+        f"engine on the GPU differs from Hugging Face on the same GPU by {vs_hf_gpu:.3e} "
+        f"(limit {SAME_GPU_TOLERANCE:.0e})"
+    )
+    assert vs_cpu <= floor * FLOOR_MARGIN, (
+        f"engine is {vs_cpu:.3e} from the CPU reference, further than Hugging Face's own GPU run "
+        f"({floor:.3e} x {FLOOR_MARGIN})"
+    )
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -137,11 +154,11 @@ def test_gpu_fp32_logits_match_cpu_reference_on_fifty_prompts(
     record_property("hf_gpu_vs_hf_cpu_noise_floor", floor)
     print(
         f"\nfp32, 50 prompts, max abs logit difference:"
-        f"\n  engine(GPU) vs HF(CPU) : {vs_cpu:.3e}   <- contract, target {FP32_LOGIT_TARGET:.0e}"
-        f"\n  engine(GPU) vs HF(GPU) : {vs_hf_gpu:.3e}"
+        f"\n  engine(GPU) vs HF(CPU) : {vs_cpu:.3e}   <- at most the floor x {FLOOR_MARGIN}"
+        f"\n  engine(GPU) vs HF(GPU) : {vs_hf_gpu:.3e}   <- at most {SAME_GPU_TOLERANCE:.0e}"
         f"\n  HF(GPU)     vs HF(CPU) : {floor:.3e}   <- floor: two fp32 implementations differ"
     )
-    assert vs_cpu < FP32_LOGIT_TARGET
+    assert_fp32_contract(vs_cpu, vs_hf_gpu, floor)
 
 
 def test_gpu_fp32_logits_match_cpu_reference_on_a_long_prompt(
@@ -150,15 +167,18 @@ def test_gpu_fp32_logits_match_cpu_reference_on_a_long_prompt(
     with torch.no_grad():
         actual = engine_fp32(references["long_ids"].to(DEVICE), last_only=True)[0, -1].cpu()
     vs_cpu = (actual - references["cpu_long"]).abs().max().item()
+    vs_hf_gpu = (actual - references["gpu_long"]).abs().max().item()
     floor = (references["gpu_long"] - references["cpu_long"]).abs().max().item()
     record_property("engine_gpu_vs_hf_cpu_max_abs_diff_2048_tokens", vs_cpu)
+    record_property("engine_gpu_vs_hf_gpu_max_abs_diff_2048_tokens", vs_hf_gpu)
     record_property("hf_gpu_vs_hf_cpu_noise_floor_2048_tokens", floor)
     print(
         f"\nfp32, {LONG_PROMPT_TOKENS}-token prompt, max abs logit difference:"
-        f"\n  engine(GPU) vs HF(CPU) : {vs_cpu:.3e}   <- contract, target {FP32_LOGIT_TARGET:.0e}"
+        f"\n  engine(GPU) vs HF(CPU) : {vs_cpu:.3e}   <- at most the floor x {FLOOR_MARGIN}"
+        f"\n  engine(GPU) vs HF(GPU) : {vs_hf_gpu:.3e}   <- at most {SAME_GPU_TOLERANCE:.0e}"
         f"\n  HF(GPU)     vs HF(CPU) : {floor:.3e}   <- floor: two fp32 implementations differ"
     )
-    assert vs_cpu < FP32_LOGIT_TARGET
+    assert_fp32_contract(vs_cpu, vs_hf_gpu, floor)
 
 
 def test_gpu_bf16_agreement_with_fp32_reference(

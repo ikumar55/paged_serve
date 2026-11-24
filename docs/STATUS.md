@@ -34,7 +34,7 @@ server (and so the scheduler and paged cache) has run on one GPU, a Capsule RTX 
 
 | Component | Code | Verified how | Not verified |
 | --- | --- | --- | --- |
-| Llama forward pass, contiguous KV cache (D-002, D-012) | `engine/model.py`, `config.py`, `weights.py`, `kv_cache.py`, `generate.py` | Bit-identical logits to Hugging Face in fp32 on CPU (50 prompts, a 2048-token prompt); within the 1e-3 target on an RTX A6000; greedy decoding identical on 200 of 200 prompts in fp32 and bf16 on the A6000 and in bf16 on the RTX 5060 Ti. **RTX 5090:** fp32 logits bit-identical to Hugging Face on the same GPU (0.0) but 1.19e-3 from Hugging Face on the CPU, which is Hugging Face's own GPU-versus-CPU gap on that card, so `test_gpu_fp32_logits_match_cpu_reference_on_fifty_prompts` (target 1e-3) fails there; undecided whether to change the contract (D-019) | Other GPUs; kernels other than plain PyTorch SDPA |
+| Llama forward pass, contiguous KV cache (D-002, D-012) | `engine/model.py`, `config.py`, `weights.py`, `kv_cache.py`, `generate.py` | Bit-identical logits to Hugging Face in fp32 on CPU (50 prompts, a 2048-token prompt); within the 1e-3 target on an RTX A6000; greedy decoding identical on 200 of 200 prompts in fp32 and bf16 on the A6000 and in bf16 on the RTX 5060 Ti. **RTX 5090:** fp32 logits bit-identical to Hugging Face on the same GPU (0.0) but 1.19e-3 from Hugging Face on the CPU, which is Hugging Face's own GPU-versus-CPU gap on that card, so the old target of 1e-3 against the CPU failed there; the GPU contract was changed on 2026-11-24 to equality with Hugging Face on the same GPU (1e-4) and no further from the CPU than Hugging Face's own GPU run (D-019) | Other GPUs; kernels other than plain PyTorch SDPA |
 | Block allocator, paged KV cache (D-003) | `engine/block_allocator.py`, `paged_cache.py` | Paged logits exactly equal the contiguous cache's, with scattered blocks; deliberately broken variants fail | GPU; the gather-based attention path has never been profiled |
 | Batched decode and scheduler (D-004) | `engine/scheduler.py`, `paged_cache.py` (`PagedBatchCache`) | Equals single-request greedy decoding on a tiny model, and equals Hugging Face `generate` on the **real weights**, fp32, CPU, 16 prompts x 24 tokens, including 9 preemptions by recompute (`tests/test_real_llama_scheduler.py`) | bf16, GPU, the 200-prompt evaluation through the scheduler, any speed |
 | Prefix cache (D-005) | `engine/prefix_cache.py`, `block_allocator.py` | Tiny-model tests incl. eviction and preemption; six broken variants fail | Real weights, bf16, hit rates on real traffic; reused blocks may differ from an uncached run in rounding |
@@ -259,9 +259,11 @@ session.
    sweeps with four seeds, the shared-prefix runs and the monitored repeat are done and committed
    (`results/`, D-019, with pointers in D-005 and D-006). **Still to do:** the measured effects in
    D-003 and D-004 (paged cache and continuous batching; D-019 holds the comparisons), vLLM at
-   higher rates and the engine's batch sizes beyond 64, profiling the engine's inter-token latency,
-   and decide the fp32 test contract. The machine's directory is kept until these are
-   done or dropped. Original text of this step follows.
+   higher rates and the engine's batch sizes beyond 64. Done since: the decode-step profile
+   (D-003), the fp32 GPU contract (decided 2026-11-24, D-019) and the GPU scheduler-versus-Hugging
+   Face evaluation (results in D-019 once recorded). **Next, in this order:** an independent review of the
+   claims against the raw data, then the pre-registered CUDA-graph experiment (D-020), then delete the
+   machine's directory. Original text of this step follows.
    **The GPU session itself**, following `docs/gpu-runbook.md`: set up, record both environments,
    smoke test, then the HF baseline, engine and vLLM sweeps with several seeds, then reports. Write
    the measured effects into D-003, D-004, D-005 and D-006 and add change-log rows. Plan as of

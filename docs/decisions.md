@@ -802,8 +802,13 @@ estimates are recorded here as if they were results.
     on the CPU the difference is 1.19e-3, which is exactly the difference between Hugging Face's own
     GPU and CPU outputs on this card. `test_gpu_fp32_logits_match_cpu_reference_on_fifty_prompts` has
     a target of 1e-3 and therefore **fails here** (1.19e-3), for a reason that is not the engine.
-    The 2048-token prompt agreed to 1.18e-5. Not yet decided whether the contract should become
-    "equal to Hugging Face on the same GPU" with the CPU gap reported against the measured floor.
+    The 2048-token prompt agreed to 1.18e-5. **Decided 2026-11-24:** the fixed 1e-3 bound against
+    the CPU stays for the CPU tests (D-010) but is dropped for the GPU tests, because it measured
+    the card and not the engine. The GPU contract is now two checks that do test the engine: the
+    engine on the GPU must equal Hugging Face on the same GPU to within 1e-4 (0.0 here), and it
+    must be no further from the CPU reference than Hugging Face's own GPU run is (within 5%). This
+    is stricter in the first check and honest in the second. The float64 truth report on this card
+    (`results/fp64-truth-rtx5090.txt`) is the evidence for how accurate each implementation is.
   - The CPU test suite passes on Linux: 323 passed, including the two load generator timing
     tests that fail intermittently on Windows (so that failure is the Windows clock); the 7
     real-weights CPU tests also pass.
@@ -896,6 +901,30 @@ estimates are recorded here as if they were results.
     setting; the Hugging Face best setting is at the edge of its grid
     (batch 64 is about the memory limit); the box's code was a `git archive` of commit b101006, so
     the environment captures record `git.commit: null`.
+
+### D-020 Speed experiment: CUDA graphs for the decode step (PLANNED, criteria fixed in advance)
+
+- **Status:** planned 2026-11-24; **nothing is implemented.** This entry is written before any code
+  so that the success test cannot move after the result is seen.
+- **Hypothesis:** D-003's profile found the decode step launch-bound (about 950 kernels per step,
+  the GPU idle for 52% of a batch-32 step). Capturing the step in a CUDA graph per bucket of batch
+  size and padded width removes the launch gaps, so the step should approach its GPU busy time
+  (4.8 ms at batch 32 against 9.9 ms measured).
+- **Design constraints:** an opt-in `--cuda-graphs` server flag; the default path is unchanged, so
+  every recorded result stays reproducible from its commit. Static input buffers; padding rows must
+  write only to a scratch block so they cannot corrupt a live sequence; buckets chosen up front.
+- **Success criteria (fixed now):** (a) *correctness gates, all required:* `bench.scheduler_eval`
+  identical counts no worse than the default path in all three configurations, the unchanged
+  greedy evaluation, and the CPU test suite passing; (b) *step time:* `bench.profile_decode` median
+  wall time at batch 32 at most 7.0 ms (at least 30% below the 9.94 ms baseline); (c) *end to end:*
+  the engine's delivered throughput at 16 req/s, mean of four seeds, at least 16.5 req/s (15% above
+  14.4) with the lowest seed above the baseline's highest (15.1), on a machine the monitor and
+  audit report clean.
+- **Stopping rule:** time-boxed to about a day and three GPU sessions. If (a) fails, revert and
+  record why. If (a) holds but (b) or (c) does not, record it as a negative or partial result with
+  the new profile; do not adjust the criteria afterwards. A fused paged-attention kernel and
+  chunked prefill (D-003's stretch goals) are not part of this experiment.
+- **Measured effect:** none yet.
 
 ## Open verification items
 
