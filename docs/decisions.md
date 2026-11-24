@@ -1469,6 +1469,27 @@ estimates are recorded here as if they were results.
     possibly with an investigation of why prompt 10 flips; (3) try the fallback named in the
     design constraints (length-sorted groups of the decode batch, which keeps PyTorch's own
     attention) as a separate pre-registered experiment.
+- **Diagnostic speed measurement, planned 2026-11-24 with the owner, written before it is run.
+  This is NOT the D-025 measurement (b) and (c) and produces NO claim: gate (a) failed, and the
+  rule stands. Its purpose is to decide whether the kernel is worth the effort of a D-026 that
+  would settle the bf16 question.** Kernel = the session 2 version (commit `94f1fe3`), the same
+  machine, self-test before each pair, machine monitor throughout. Design (the same as (b) and
+  (c) so the numbers mean something, with the alternation added): (1) the real-mix step profile,
+  four seeds, batch 60, gather and kernel interleaved within each seed, as `bench.profile_decode
+  --mix-seeds 0,1,2,3 --mix-batch 60 --mix-attention both`; (2) the engine at batch 64 and 32
+  req/s offered (above its capacity), 60 s per run, four seeds, kv cache 8 GB, gather and
+  kernel runs paired within each seed, in alternating order (gather first on seeds 0 and 2,
+  kernel first on seeds 1 and 3, so that no variant always runs second). Predictions, written
+  now: the median real-mix step is about 40 to 60% shorter with the kernel (about 8 to 12 ms
+  against about 20); delivered throughput at saturation rises by 1.3 to 1.8 times (D-025's own
+  expectation); zero failed requests. Reading, fixed now: if the step is less than 20% shorter,
+  the kernel is inefficient (an underfilled GPU, one program per sequence and head) and not
+  worth a D-026 in this form; if the step is shorter by 40% or more but throughput rises by
+  under 1.15 times, the rest of the server (prefill, scheduling) dominates and the next work is
+  there; if the mean paired ratio is at least 1.30 and every seed at least 1.15, the kernel would
+  have met (c) on the numbers, which makes a D-026 for the bf16 question worth writing, still
+  without any claim from this run. Whatever happens, the figures are reported as diagnostic and
+  labelled so.
 - **Measured effect:** none claimed. The kernel is correct in fp32 (scheduler 50 of 50 identical to
   Hugging Face on both prompt sets, three configurations each, preemptions and cache hits
   included; error against float64 at most 0.57 times the gather path's) but **fails the fixed bf16
