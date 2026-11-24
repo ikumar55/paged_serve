@@ -1768,9 +1768,9 @@ estimates are recorded here as if they were results.
     float64 model; the criteria were chosen after the fact and the kernel was not changed to
     meet them.
 
-### D-027 Is the CUDA-graph path's bf16 accuracy as good as the gather path's? (PLANNED, criteria fixed before any run; they are POST-HOC)
+### D-027 Is the CUDA-graph path's bf16 accuracy as good as the gather path's? (RUN: all four criteria met; the criteria are POST-HOC; one open caveat)
 
-- **Status:** planned 2026-11-24; **nothing is built or run yet for this entry.** Follows from
+- **Status:** planned 2026-11-24, built and run the same day (result at the end of this entry; the plan is as written). Follows from
   D-020: with the kernel, CUDA graphs add 1.40 times at saturation in a diagnostic run, but the
   graph path's bf16 outputs are not hash-identical to the eager kernel path's (criterion (a)(ii)
   of D-020 amendment 2, recorded as failed), because padding the batch to a bucket changes the
@@ -1806,7 +1806,43 @@ estimates are recorded here as if they were results.
   strict gate failed; D-027's standard was chosen after the fact). Any of (i) to (iii) fails:
   the graph path is measurably less accurate in bf16, nothing about graph speed is claimed, and
   the finding is recorded. (iv) fails: a bug; stop.
-- **Time box:** this session. **Measured effect:** none yet.
+- **Time box:** this session.
+- **Measured effect (2026-11-24, same Capsule RTX 5090 machine; commit `a467bbb`; self-test first;
+  monitor on; the tool's 14 CPU tests pass and every deliberate breakage is caught;
+  `deploy/gpu_d027.sh`; `results/bf16-logit-error-graphs-rtx5090-{frozen,prefix-s0,prefix-s1,prefix-s2}.json`,
+  `results/bf16-logit-error-report-graphs-rtx5090.json`).** 200 prompts, 12,600 positions per
+  variant, the graph variants run in the 56-row bucket (50 sequences, 6 padding rows):
+
+  | | bf16 gather | bf16 eager kernel | bf16 graphs |
+  | --- | ---: | ---: | ---: |
+  | mean of the per-position maximum logit error | 0.1495 | 0.1497 | 0.1497 |
+  | 99th percentile | 0.3959 | 0.3956 | 0.3956 |
+  | flips against fp32, all / not near-ties | 85 / 9 | 86 / 4 | 86 / 4 |
+
+  **(i) to (iv) all hold for the graph variants:** error ratio to the gather path 1.0012 (limit
+  1.10) and 0.9994 (limit 1.25), clear flips 4 against a limit of 13.25, and the fp32 graph
+  variant has 0 flips and a mean error of 0. Prediction check: (i) and (ii) were predicted at 0.95
+  to 1.05 and are 1.001 and 0.999; (iv) held; the graph path was predicted to be within 0.5% of
+  the eager kernel on (i) and **is exactly equal to it: the per-position errors of the graph
+  variants and the eager kernel variants are identical at all 12,600 positions, in bf16 and in
+  fp32** (not one position differs).
+  - **By the interpretation fixed above:** the graph path is as accurate as the gather path in bf16
+    against fp32, by this post-hoc standard; D-020's strict gate stays recorded as failed; the
+    graph speed figures of the D-020 diagnostic may be quoted with both facts stated.
+  - **Open caveat, stated plainly:** exact equality with the eager kernel is what the earlier GPU
+    test (7 of 8 padded steps bit-equal) makes plausible, but this result file does not record
+    that the graphs were really replayed with padding rows (the tool did not log the decoder's
+    statistics; the CPU tests check that it does use the decoder). The tool now records them
+    (`graph_statistics` in the result file, with a test), and a rerun to put the counts on record
+    was **started but not run**: the machine session was ended early at the owner's request, and
+    the launch failed on an expired login. Until that rerun exists, read the equality with the
+    eager kernel as unconfirmed for the question "were the graphs really replayed here".
+  - *Limits:* as D-026 (one GPU, one model, 200 prompts, teacher-forced, one batch composition,
+    fp32 gather path as the reference, post-hoc criteria), and the graph path in this run always
+    sees one batch shape (50 rows in a bucket of 56), unlike a server whose batch changes every
+    step.
+- **To do:** rerun `deploy/gpu_d027.sh` with `TAG=d027-2 PREFIX=graphs2-rtx5090` when the machine
+  is available, and record `graph_statistics` (expect 63 replays per prompt set in bucket 56).
 
 ## Open verification items
 

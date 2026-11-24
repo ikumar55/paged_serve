@@ -1,0 +1,91 @@
+== 2026-11-24T21:50:35Z d027 start; gpu: 0 %, 2 MiB
+== 2026-11-24T21:50:35Z code installed, commit a467bbbeb2c120e1440b9380bbe22feed285e077
+== 2026-11-24T21:50:43Z self-test exit 0
+...........................                                              [100%]
+27 passed in 3.55s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+step 16/63
+step 32/63
+step 48/63
+fp32-kernel: mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+bf16-gather: mean err 0.1536, p99 0.3793, flips 39 (4 not near-ties)
+bf16-kernel: mean err 0.1540, p99 0.3772, flips 30 (1 not near-ties)
+fp32-graphs: mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+bf16-graphs: mean err 0.1540, p99 0.3772, flips 30 (1 not near-ties)
+wrote results/bf16-logit-error-graphs-rtx5090-frozen.json
+== 2026-11-24T21:51:01Z frozen exit 0
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+step 16/63
+step 32/63
+step 48/63
+fp32-kernel: mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+bf16-gather: mean err 0.1461, p99 0.4221, flips 9 (1 not near-ties)
+bf16-kernel: mean err 0.1458, p99 0.3833, flips 9 (0 not near-ties)
+fp32-graphs: mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+bf16-graphs: mean err 0.1458, p99 0.3833, flips 9 (0 not near-ties)
+wrote results/bf16-logit-error-graphs-rtx5090-prefix-s0.json
+== 2026-11-24T21:51:21Z prefix seed 0 exit 0
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+step 16/63
+step 32/63
+step 48/63
+fp32-kernel: mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+bf16-gather: mean err 0.1452, p99 0.3799, flips 23 (3 not near-ties)
+bf16-kernel: mean err 0.1457, p99 0.3952, flips 28 (2 not near-ties)
+fp32-graphs: mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+bf16-graphs: mean err 0.1457, p99 0.3952, flips 28 (2 not near-ties)
+wrote results/bf16-logit-error-graphs-rtx5090-prefix-s1.json
+== 2026-11-24T21:51:42Z prefix seed 1 exit 0
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+step 16/63
+step 32/63
+step 48/63
+fp32-kernel: mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+bf16-gather: mean err 0.1530, p99 0.4121, flips 14 (1 not near-ties)
+bf16-kernel: mean err 0.1531, p99 0.4201, flips 19 (1 not near-ties)
+fp32-graphs: mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+bf16-graphs: mean err 0.1531, p99 0.4201, flips 19 (1 not near-ties)
+wrote results/bf16-logit-error-graphs-rtx5090-prefix-s2.json
+== 2026-11-24T21:52:03Z prefix seed 2 exit 0
+bf16-gather: positions 12600, mean err 0.1495, p99 0.3959, flips 85 (9 not near-ties)
+bf16-graphs: positions 12600, mean err 0.1497, p99 0.3956, flips 86 (4 not near-ties)
+bf16-kernel: positions 12600, mean err 0.1497, p99 0.3956, flips 86 (4 not near-ties)
+fp32-graphs: positions 12600, mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+fp32-kernel: positions 12600, mean err 0.0000, p99 0.0000, flips 0 (0 not near-ties)
+{
+  "all_pass": true,
+  "i_mean_error_ratio": 1.0012343340966126,
+  "i_pass": true,
+  "ii_p99_error_ratio": 0.9993604097232176,
+  "ii_pass": true,
+  "iii_flips_not_near_tie": {
+    "gather": 9,
+    "kernel": 4
+  },
+  "iii_pass": true,
+  "iv_fp32_kernel_error_mean": 1.7450299587041614e-05,
+  "iv_fp32_kernel_flips": 0,
+  "iv_pass": true
+}
+graph variants:
+{
+  "all_pass": true,
+  "i_mean_error_ratio": 1.0012343340966126,
+  "i_pass": true,
+  "ii_p99_error_ratio": 0.9993604097232176,
+  "ii_pass": true,
+  "iii_flips_not_near_tie": {
+    "gather": 9,
+    "kernel": 4
+  },
+  "iii_pass": true,
+  "iv_fp32_kernel_error_mean": 1.7450299587041614e-05,
+  "iv_fp32_kernel_flips": 0,
+  "iv_pass": true
+}
+== 2026-11-24T21:52:05Z report exit 0
+== 2026-11-24T21:52:15Z D027-DONE
