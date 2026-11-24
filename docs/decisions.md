@@ -1043,6 +1043,93 @@ estimates are recorded here as if they were results.
   lengths, all requests waiting) is not representative; that would be reported as such.
 - **Measured effect:** none yet.
 
+### D-022 Router on real engine replicas (PLANNED, criteria fixed in advance)
+
+- **Status:** planned 2026-11-24; the harness change (a real-backend option in
+  `bench/router_compare.py`) is written first and tested on CPU; nothing has been measured. This is
+  the Phase 2 gate of D-011: until it passes on real replicas, every router result rests on the
+  mock backend's placeholder timing (D-007) and the router is described as a prototype validated on
+  a simulated fleet.
+- **Hypothesis:** when each replica's cache is smaller than the workload's shared prefixes but the
+  fleet's total cache is not, prefix-aware routing partitions the prefixes across replicas, so the
+  fleet's prefix-cache hit rate is higher than under round-robin or least-outstanding, and median
+  time to first token is lower. (On the mock fleet the approximate policy took the hit rate from
+  42% to 71% in the one configuration where the cap did not override the policy, D-007.)
+- **Design:** 3 real engine replicas (`engine.server`, bf16) on the **one** RTX 5090, behind the
+  router; **the replicas share the GPU and the CPU, a confound stated in every result**. Workload:
+  32 shared prefixes of 1024 tokens (about 32,000 prefix tokens) with unequal popularity (skew 1),
+  unique suffix median 64, output median 32, 6 req/s fleet-wide (a rate the single engine keeps up
+  with, so queueing does not decide the result). Per-replica KV pool 0.5 GB (about 16,000 tokens,
+  below the 32,000-token working set) and so about 48,000 tokens across the fleet (above it). Four
+  policies (round-robin, least-outstanding, approximate prefix, precise prefix), load cap high
+  enough not to override the policy (the mock runs found the cap, not the policy, decided at 16),
+  four workload seeds, the four policies interleaved within each seed, a fresh fleet per run, the
+  determinism self-test before the session and the machine monitor throughout.
+- **Success criteria (fixed now):** (a) *gate:* every run has zero failed requests and every
+  request returns its requested number of tokens; (b) *the claim:* the better prefix policy's
+  fleet prefix-cache hit rate is at least 15 percentage points above round-robin's, with its lowest
+  seed above round-robin's highest; (c) *latency:* its median time to first token is at least 20%
+  below round-robin's, paired by seed. p99, throughput and the computed-token imbalance are
+  reported whatever they show (the mock runs showed concentration as the cost).
+- **Interpretation, fixed now:** (b) passes and (c) fails: the cache saves compute that the GPU was
+  not short of at this load and prefix length, a result to state plainly. (b) fails: the mock's
+  result does not transfer to real replicas and the router is described as such. If the precise
+  policy does not beat the approximate one, the mock's finding that approximate does not lag
+  precise is confirmed or refuted, whichever it is.
+- **Measured effect:** none yet.
+
+### D-023 What paging buys: concurrency at a fixed memory budget (PLANNED, criteria fixed in advance)
+
+- **Status:** planned 2026-11-24; no code needed beyond the existing sweep tools.
+- **Why:** the engine's headline feature, a paged KV cache, has had no experiment of its own: every
+  speed result bundles it with batching and the gather. The independent review asked what paging
+  buys. Paging's claim is memory efficiency: a sequence holds only the blocks it has used, so more
+  sequences fit in the same memory than when each reserves room for the longest reply.
+- **Design:** the same engine, the same workload (the standard one, maximum prompt 2048 and
+  output 512 tokens), the same fixed KV budget that binds (1 GB, about 32,000 tokens), two block
+  sizes: 16 (paged as served) and 2560 (the largest total length, so every sequence reserves a
+  slab sized for the longest possible request, the contiguous design's reservation). Prefix caching
+  off in both so it does not confound. Offered rates below, at and above capacity, four seeds
+  interleaved. Reported: the most sequences ever decoded together (from `/info`), preemptions,
+  tokens actually stored against tokens reserved, and delivered throughput at an offered rate above
+  capacity. **Confound, stated in advance:** the gather pads each step to the longest sequence's
+  blocks, so the 2560-token block also makes every step slower; the memory result (concurrency, waste)
+  is not affected by that, the throughput result is, and is reported as the combined effect of the
+  reservation policy.
+- **Success criteria (fixed now):** with the budget binding, the paged cache sustains at least
+  3 times the concurrent sequences of the slab reservation (predicted from the length distribution
+  before the run: about 40 to 60 against about 12), and delivers higher saturated throughput with
+  every seed's ratio above 1.0. With an ample budget (8 GB) the two differ little in concurrency;
+  that is the control.
+- **Interpretation:** a concurrency gain below 2 times would mean the workload's lengths are close
+  to the maximum and paging buys little here, which would be reported with the length statistics.
+- **Measured effect:** none yet.
+
+### D-024 Extension: a calibrated serving simulator, validated against the real engine (PLANNED, criteria fixed in advance)
+
+- **Status:** planned 2026-11-24 (D-011's default extension; speculative decoding is the declined
+  alternative, recorded here). Chosen because the mock backend's step times are placeholders
+  (D-008) and the measurements now exist to calibrate them: the decode step is about 8 to 10 ms
+  almost independent of batch (D-003), prefill is launch-bound, and the real engine's saturated
+  behaviour has been measured.
+- **Design:** (1) measure, on the 5090, the engine's step time as a function of batch size and of
+  context length, and its prefill time as a function of prompt length (extending
+  `bench/profile_decode.py`); (2) fit the mock's `TimingModel` to those measurements (a model
+  stated before fitting: decode step = a + b x batch + c x padded width; prefill = d + e x tokens);
+  (3) run the **real scheduler** on the calibrated mock under the workloads and rates of the real
+  sweeps; (4) compare the simulator's predictions with the real engine's measurements **that were
+  not used to fit it**.
+- **Success criteria (fixed now):** held out: the standard workload at 4, 8 and 12 req/s and the
+  shared-prefix workload of D-019. The simulator predicts, for each held-out cell, delivered
+  throughput within 10% and median time to first token within 25% of the real engine's four-seed
+  mean (or inside its range), and reproduces the ordering (cache on faster than off). It must also
+  say where it is wrong: the saturated rate is predicted separately, and a miss there is reported
+  as a limit of the model.
+- **Interpretation:** if it fails at saturation but holds below, the simulator is valid for
+  capacity planning below the engine's limit only, which is stated. If it fails below saturation,
+  the timing model is missing a term, and the entry records which.
+- **Measured effect:** none yet.
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~
