@@ -1,0 +1,87 @@
+# A whole pagedserve stack on one machine with NO GPU and NO model weights: two mock engine
+# replicas behind the router, and an optional load generator.
+#
+# STATUS: written 2026-11-24 on a machine without Docker; its structure is checked by
+# tests/test_deploy_files.py, but it has NEVER BEEN RUN.
+#
+# The mock backend (engine/mock.py) has placeholder timings: this shows the plumbing (routing,
+# streaming, health checks), not performance. The engine image still installs PyTorch, which the
+# server imports, so the first build downloads a few gigabytes.
+#
+#   docker compose -f deploy/docker/compose.mock.yaml up --build
+#   curl http://localhost:9000/info
+#   docker compose -f deploy/docker/compose.mock.yaml --profile load run --rm loadgen
+name: pagedserve-mock
+
+x-engine: &engine
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile.engine
+  image: pagedserve-engine:0.1.0
+  command:
+    - "--backend"
+    - "mock"
+    - "--host"
+    - "0.0.0.0"
+    - "--port"
+    - "8000"
+    - "--max-batch-size"
+    - "32"
+    - "--kv-cache-gb"
+    - "0.25"
+
+services:
+  engine-0:
+    <<: *engine
+  engine-1:
+    <<: *engine
+
+  router:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.router
+    image: pagedserve-router:0.1.0
+    command:
+      - "--replica"
+      - "http://engine-0:8000"
+      - "--replica"
+      - "http://engine-1:8000"
+      - "--policy"
+      - "precise-prefix"
+      - "--load-cap"
+      - "32"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "9000"
+    ports:
+      - "9000:9000"
+    depends_on:
+      engine-0:
+        condition: service_healthy
+      engine-1:
+        condition: service_healthy
+
+  loadgen:
+    profiles: ["load"]
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.bench
+    image: pagedserve-bench:0.1.0
+    command:
+      - "run"
+      - "--url"
+      - "http://router:9000"
+      - "--model"
+      - "mock"
+      - "--rate"
+      - "8"
+      - "--duration"
+      - "20"
+      - "--out"
+      - "/out/mock-run.jsonl"
+    volumes:
+      - ./out:/out
+    depends_on:
+      router:
+        condition: service_healthy

@@ -1,0 +1,22 @@
+# Where the model weights live. They are licence-gated (Meta's Llama licence, accepted on Hugging
+# Face) and are NOT in the image and NOT in this repository. Put the six files of
+# Llama-3.2-1B-Instruct in a directory named Llama-3.2-1B-Instruct at the root of this volume
+# (deploy/README.md shows one way). The engine pods mount it read-only.
+#
+# STATUS: written 2026-11-24 without a cluster; NEVER APPLIED. The storage class is cluster
+# specific: both engine replicas mount the same volume, so it must support more than one node
+# reading it (ReadWriteMany here, because that is what most shared file systems offer and it lets
+# you populate the volume; the pods only ever read it).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pagedserve-models
+  labels:
+    app.kubernetes.io/part-of: pagedserve
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: <your RWX-capable class>

@@ -18,7 +18,8 @@ from router.app import create_router_app
 from router.policies import DEFAULT_MAX_ENTRIES, POLICIES, make_policy
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line of ``python -m router.server`` (also read by the deployment tests)."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0] if __doc__ else None)
     parser.add_argument(
         "--replica",
@@ -51,6 +52,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default: local only)")
     parser.add_argument("--port", type=int, default=9000)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     for url in args.replica:

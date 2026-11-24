@@ -1,0 +1,39 @@
+# pagedserve router: sends each request to one of several engine replicas, optionally by prompt
+# prefix (the policies of router/policies.py).
+#
+# STATUS: written 2026-11-24 on a machine without Docker; checked with hadolint and by the tests in
+# tests/test_deploy_files.py, but NEVER BUILT OR RUN. Treat the first build as the first test.
+#
+# Build from the repository root:
+#     docker build -f deploy/docker/Dockerfile.router -t pagedserve-router:0.1.0 .
+#
+# The router needs no GPU and no PyTorch: it imports only engine/prefix_cache.py and
+# engine/block_allocator.py (the block hashing it shares with the engine), which are pure Python
+# (tests/test_deploy_files.py checks that torch is not imported). So the image is small.
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin app
+
+WORKDIR /app
+COPY constraints.txt /app/constraints.txt
+RUN pip install -c /app/constraints.txt fastapi uvicorn httpx
+
+COPY engine /app/engine
+COPY router /app/router
+
+ENV PYTHONPATH=/app
+USER 10001:10001
+EXPOSE 9000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=4)"]
+
+# The replicas are required arguments, for example:
+#   --replica http://engine-0.engine:8000 --replica http://engine-1.engine:8000
+ENTRYPOINT ["python", "-m", "router.server"]
+CMD ["--host", "0.0.0.0", "--port", "9000"]

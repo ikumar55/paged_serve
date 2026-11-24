@@ -372,7 +372,8 @@ async def _stream(
         runner.abort(stream)  # a client that disconnects mid-stream must not keep its blocks
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line of ``python -m engine.server`` (also read by the deployment tests)."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0] if __doc__ else None)
     parser.add_argument(
         "--backend",
@@ -417,6 +418,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     mock.add_argument("--mock-time-scale", type=float, default=defaults.time_scale)
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default: local only)")
     parser.add_argument("--port", type=int, default=8000)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.paged_attention_kernel and args.backend != "llama":

@@ -1,0 +1,25 @@
+# The build context is the repository root; keep it small and keep secrets and weights out of it.
+.git
+.github
+.venv
+venvs
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Weights, results and notes are never part of an image.
+models
+results
+docs
+tests
+LOCAL_HELPFUL_NOTES.md
+*.safetensors
+*.bin
+.env
+.env.*
+*.pem
+*.key
+hf_token*

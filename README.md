@@ -112,3 +112,7 @@ python -m bench.loadgen run --url http://localhost:8000 --model MODEL --rate 4 -
 ```
 
 Design decisions, with the measured effect of each change, are tracked in [`docs/decisions.md`](docs/decisions.md).
+
+## Deploying
+
+Dockerfiles, a compose file for a no-GPU demo stack and Kubernetes manifests (base plus two overlays) are in [`deploy/`](deploy/README.md). They have been validated offline (hadolint, kubeconform, and tests that parse every argument list with the servers' real parsers) but **never built or applied**: no Docker host or cluster was available. `deploy/README.md` says what is verified and what to try first if something breaks.

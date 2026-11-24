@@ -1,0 +1,60 @@
+# pagedserve engine server (the paged-KV, continuous-batching inference server).
+#
+# STATUS: written 2026-11-24 on a machine without Docker; checked with hadolint and by the tests in
+# tests/test_deploy_files.py, but NEVER BUILT OR RUN. Treat the first build as the first test.
+#
+# Build from the repository root:
+#     docker build -f deploy/docker/Dockerfile.engine -t pagedserve-engine:0.1.0 .
+#
+# The image holds code and libraries only. The model weights are licence-gated and are mounted at
+# /models (see deploy/README.md). With the mock backend it runs on a CPU with no weights:
+#     docker run --rm -p 8000:8000 pagedserve-engine:0.1.0 --backend mock --host 0.0.0.0
+#
+# The CUDA runtime comes inside the PyTorch wheels; the host only needs an NVIDIA driver and the
+# NVIDIA Container Toolkit. The pins are the ones the benchmarks used (constraints.txt, torch
+# 2.15.0 built for CUDA 13.2); an older driver than the wheel wants may still work, and the
+# determinism self-test (python -m bench.gpu_selftest) is the gate, as in deploy/setup_gpu_box.sh.
+FROM python:3.12-slim-bookworm
+
+ARG TORCH_CUDA_INDEX=cu132
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Triton compiles a small C launcher the first time a kernel is used (--paged-attention-kernel),
+# so the image needs a C compiler. The Python headers are already part of this base image.
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin app
+
+WORKDIR /app
+COPY constraints.txt /app/constraints.txt
+# The same two steps as deploy/setup_gpu_box.sh: the CUDA build of torch from PyTorch's index,
+# then the rest from PyPI, all under the version pins.
+RUN pip install -c /app/constraints.txt torch \
+        --index-url "https://download.pytorch.org/whl/${TORCH_CUDA_INDEX}" \
+    && pip install -c /app/constraints.txt fastapi uvicorn safetensors numpy httpx
+
+COPY engine /app/engine
+
+ENV PYTHONPATH=/app \
+    HOME=/home/app \
+    TRITON_CACHE_DIR=/home/app/.triton \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+USER 10001:10001
+EXPOSE 8000
+
+# /health answers once the weights are loaded and the engine thread is alive.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+
+ENTRYPOINT ["python", "-m", "engine.server"]
+CMD ["--model-dir", "/models/Llama-3.2-1B-Instruct", "--host", "0.0.0.0", "--port", "8000", \
+     "--dtype", "bfloat16", "--max-batch-size", "64", "--kv-cache-gb", "8"]

@@ -1,0 +1,51 @@
+# The whole stack on a cluster with NO GPU and NO model weights: the engine replicas run the mock
+# backend (placeholder timings, engine/mock.py), so this shows the plumbing (service discovery,
+# routing, probes, rollout), not performance. Handy on a local `kind` or `minikube` cluster.
+#
+#   kubectl apply -k deploy/k8s/overlays/mock
+#   kubectl -n pagedserve port-forward svc/router 9000:80
+#
+# STATUS: written 2026-11-24 without a cluster; validated offline only; NEVER APPLIED.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  # No weights volume is needed.
+  - patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: pagedserve-models
+      $patch: delete
+  - target:
+      kind: StatefulSet
+      name: engine
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/args
+        value:
+          - "--backend"
+          - "mock"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "8000"
+          - "--max-batch-size"
+          - "32"
+          - "--kv-cache-gb"
+          - "0.25"
+      # Smaller requests, and limits without the GPU (replacing the block drops nvidia.com/gpu).
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value:
+          cpu: 500m
+          memory: 1Gi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits
+        value:
+          memory: 2Gi
+      - op: remove
+        path: /spec/template/spec/containers/0/volumeMounts/0
+      - op: remove
+        path: /spec/template/spec/volumes/0

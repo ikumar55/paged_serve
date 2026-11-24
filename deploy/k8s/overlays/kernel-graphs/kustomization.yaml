@@ -1,0 +1,23 @@
+# The engine with the opt-in speed paths: the Triton decode-attention kernel (D-025) and CUDA graphs
+# (D-020). Both are off by default in the code; their status, including the failed strict bf16
+# gates and the post-hoc accuracy standards, is in docs/decisions.md. Use this overlay only after
+# reading those entries.
+#
+#   kubectl apply -k deploy/k8s/overlays/kernel-graphs
+#
+# STATUS: written 2026-11-24 without a cluster; validated offline only; NEVER APPLIED.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: StatefulSet
+      name: engine
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "--paged-attention-kernel"
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "--cuda-graphs"

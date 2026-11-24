@@ -1,0 +1,131 @@
+# The engine replicas: a headless Service (stable per-pod DNS names) and a StatefulSet with one GPU
+# per pod. The router reaches replica N as http://engine-N.engine:8000.
+#
+# STATUS: written 2026-11-24 on a machine without Docker or a cluster. Validated offline only (a
+# manifest schema check and tests/test_deploy_files.py, which also parse the container arguments
+# with the servers' real argument parsers). NEVER APPLIED TO A CLUSTER.
+#
+# Needs: the NVIDIA device plugin (so `nvidia.com/gpu` exists), and the model weights in the
+# PersistentVolumeClaim `pagedserve-models` (see models-pvc.yaml and deploy/README.md).
+apiVersion: v1
+kind: Service
+metadata:
+  name: engine
+  labels:
+    app.kubernetes.io/name: engine
+    app.kubernetes.io/part-of: pagedserve
+spec:
+  clusterIP: None # headless: one DNS record per ready pod, engine-0.engine, engine-1.engine, ...
+  selector:
+    app.kubernetes.io/name: engine
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: engine
+  labels:
+    app.kubernetes.io/name: engine
+    app.kubernetes.io/part-of: pagedserve
+spec:
+  serviceName: engine
+  replicas: 2
+  podManagementPolicy: Parallel # the replicas do not depend on each other
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: engine
+        app.kubernetes.io/part-of: pagedserve
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # GPU nodes are often tainted so that only GPU workloads land on them.
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: engine
+          image: pagedserve-engine
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--model-dir"
+            - "/models/Llama-3.2-1B-Instruct"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            - "--dtype"
+            - "bfloat16"
+            - "--max-batch-size"
+            - "64"
+            - "--kv-cache-gb"
+            - "8"
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+            limits:
+              memory: 16Gi
+              nvidia.com/gpu: 1 # a GPU is requested through limits
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true # if this breaks the first start, see the writable mounts below
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: triton-cache # Triton writes compiled kernels here
+              mountPath: /home/app/.triton
+            - name: tmp
+              mountPath: /tmp
+          # The weights load before the server starts listening, and the first requests compile
+          # Triton kernels and (with --cuda-graphs) capture graphs, so give the start a long budget.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: pagedserve-models
+            readOnly: true
+        - name: triton-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

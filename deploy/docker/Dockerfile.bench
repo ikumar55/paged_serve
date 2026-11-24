@@ -1,0 +1,32 @@
+# pagedserve load generator: sends a Poisson workload to any server with the OpenAI-style streaming
+# API (the engine, the router, or a baseline) and records per-request results.
+#
+# STATUS: written 2026-11-24 on a machine without Docker; checked with hadolint and by the tests in
+# tests/test_deploy_files.py, but NEVER BUILT OR RUN. Treat the first build as the first test.
+#
+# Build from the repository root:
+#     docker build -f deploy/docker/Dockerfile.bench -t pagedserve-bench:0.1.0 .
+# Run (results land in the mounted directory):
+#     docker run --rm -v "$PWD/out:/out" pagedserve-bench:0.1.0 run --url http://host:9000 \
+#         --model llama-3.2-1b-instruct --rate 4 --duration 30 --out /out/run.jsonl
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    MPLBACKEND=Agg
+
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin app
+
+WORKDIR /app
+COPY constraints.txt /app/constraints.txt
+RUN pip install -c /app/constraints.txt httpx numpy matplotlib
+
+COPY bench /app/bench
+
+ENV PYTHONPATH=/app
+USER 10001:10001
+
+ENTRYPOINT ["python", "-m", "bench.loadgen"]
+CMD ["--help"]
