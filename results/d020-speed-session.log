@@ -1,0 +1,133 @@
+== 2026-11-24T21:26:35Z d020-speed start; gpu: 0 %, 2 MiB
+== 2026-11-24T21:26:35Z code installed, commit 632be408f4e056d6480de528919ad26b55c3906a
+== 2026-11-24T21:26:43Z self-test before mixprofile exit 0
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+USDT:2026-11-24 13:26:47 989951:989951 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-24 13:26:48 989951:989951 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-11-24 13:26:57 989951:989951 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-24 13:26:58 989951:989951 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-11-24 13:27:00 989951:989951 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-24 13:27:01 989951:989951 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-11-24 13:27:11 989951:989951 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-24 13:27:11 989951:989951 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-11-24 13:27:13 989951:989951 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-24 13:27:14 989951:989951 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-11-24 13:27:23 989951:989951 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-24 13:27:24 989951:989951 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-11-24 13:27:26 989951:989951 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-24 13:27:27 989951:989951 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-11-24 13:27:36 989951:989951 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-24 13:27:37 989951:989951 SyncActivityProfilerHandler.cpp:46] profiler_stop
+mix seed 0, triton, batch 60: 8.77 ms/step, GPU busy 6.95, padding x3.79
+mix seed 0, triton+graphs, batch 60: 7.94 ms/step, GPU busy 6.90, padding x3.79
+mix seed 1, triton, batch 60: 10.26 ms/step, GPU busy 8.05, padding x4.95
+mix seed 1, triton+graphs, batch 60: 9.08 ms/step, GPU busy 7.99, padding x4.95
+mix seed 2, triton, batch 60: 9.21 ms/step, GPU busy 6.83, padding x3.74
+mix seed 2, triton+graphs, batch 60: 7.74 ms/step, GPU busy 6.75, padding x3.74
+mix seed 3, triton, batch 60: 9.08 ms/step, GPU busy 5.70, padding x2.30
+mix seed 3, triton+graphs, batch 60: 6.52 ms/step, GPU busy 5.63, padding x2.30
+| batch | wall ms/step | GPU busy ms/step | GPU idle | kernels/step | matmul | attention | gather/copy | elementwise/other |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 60 | 8.77 | 6.95 | 21% | 806 | 28% | 59% | 4% | 9% |
+| 60 | 7.94 | 6.90 | 13% | 811 | 28% | 59% | 4% | 9% |
+| 60 | 10.26 | 8.05 | 22% | 806 | 24% | 64% | 4% | 8% |
+| 60 | 9.08 | 7.99 | 12% | 811 | 24% | 64% | 3% | 8% |
+| 60 | 9.21 | 6.83 | 26% | 806 | 28% | 58% | 4% | 10% |
+| 60 | 7.74 | 6.75 | 13% | 811 | 29% | 58% | 4% | 10% |
+| 60 | 9.08 | 5.70 | 37% | 806 | 34% | 49% | 5% | 12% |
+| 60 | 6.52 | 5.63 | 14% | 811 | 34% | 49% | 5% | 11% |
+== 2026-11-24T21:27:39Z mix profile exit 0
+== 2026-11-24T21:27:40Z self-test before sat-s0 exit 0
+1 runs, 60 s of arrivals each
+requests: 1920/1920 ok
+duration: 94.99 s
+output: 278795 tokens, 2934.9 tokens/s, 20.21 req/s
+TTFT (ms): p50 16889.5, p90 27715.8, p99 30850.1, max 31543.0 (n=1920)
+inter-token (ms): p50 17.2, p90 34.5, p99 56.0, max 177.8 (n=276875)
+end-to-end (s): p50 20.26, p90 31.12, p99 34.99, max 37.71 (n=1920)
+wrote results/d020-sat-eager-rtx5090-seed0/b64-w0-r32.jsonl
+b64-w0-r32: ok
+done: 1 runs; not ok: none; contended: none
+== 2026-11-24T21:29:38Z engine saturation kernel+eager seed 0 exit 0
+1 runs, 60 s of arrivals each
+requests: 1920/1920 ok
+duration: 66.09 s
+output: 278795 tokens, 4218.7 tokens/s, 29.05 req/s
+TTFT (ms): p50 3819.0, p90 4327.9, p99 4639.1, max 4697.5 (n=1920)
+inter-token (ms): p50 10.2, p90 26.4, p99 46.5, max 168.8 (n=276875)
+end-to-end (s): p50 5.57, p90 7.19, p99 9.34, max 11.38 (n=1920)
+wrote results/d020-sat-graphs-rtx5090-seed0/b64-w0-r32.jsonl
+b64-w0-r32: ok
+done: 1 runs; not ok: none; contended: none
+== 2026-11-24T21:31:07Z engine saturation kernel+graphs seed 0 exit 0
+== 2026-11-24T21:31:09Z self-test before sat-s1 exit 0
+1 runs, 60 s of arrivals each
+requests: 1920/1920 ok
+duration: 64.60 s
+output: 274041 tokens, 4242.3 tokens/s, 29.72 req/s
+TTFT (ms): p50 802.4, p90 1453.2, p99 2376.5, max 2464.1 (n=1920)
+inter-token (ms): p50 9.6, p90 25.9, p99 45.1, max 147.6 (n=272121)
+end-to-end (s): p50 2.63, p90 4.29, p99 6.22, max 8.38 (n=1920)
+wrote results/d020-sat-graphs-rtx5090-seed1/b64-w0-r32.jsonl
+b64-w0-r32: ok
+done: 1 runs; not ok: none; contended: none
+== 2026-11-24T21:32:36Z engine saturation kernel+graphs seed 1 exit 0
+1 runs, 60 s of arrivals each
+requests: 1920/1920 ok
+duration: 91.59 s
+output: 274041 tokens, 2992.1 tokens/s, 20.96 req/s
+TTFT (ms): p50 15993.3, p90 25181.4, p99 27765.9, max 27893.6 (n=1920)
+inter-token (ms): p50 16.4, p90 33.9, p99 52.5, max 222.4 (n=272121)
+end-to-end (s): p50 18.92, p90 28.13, p99 31.06, max 33.30 (n=1920)
+wrote results/d020-sat-eager-rtx5090-seed1/b64-w0-r32.jsonl
+b64-w0-r32: ok
+done: 1 runs; not ok: none; contended: none
+== 2026-11-24T21:34:30Z engine saturation kernel+eager seed 1 exit 0
+== 2026-11-24T21:34:33Z self-test before sat-s2 exit 0
+1 runs, 60 s of arrivals each
+requests: 1920/1920 ok
+duration: 91.35 s
+output: 275518 tokens, 3016.1 tokens/s, 21.02 req/s
+TTFT (ms): p50 14413.7, p90 26467.6, p99 28208.0, max 28347.0 (n=1920)
+inter-token (ms): p50 15.9, p90 33.7, p99 53.2, max 170.9 (n=273598)
+end-to-end (s): p50 17.40, p90 28.96, p99 31.82, max 33.92 (n=1920)
+wrote results/d020-sat-eager-rtx5090-seed2/b64-w0-r32.jsonl
+b64-w0-r32: ok
+done: 1 runs; not ok: none; contended: none
+== 2026-11-24T21:36:28Z engine saturation kernel+eager seed 2 exit 0
+1 runs, 60 s of arrivals each
+requests: 1920/1920 ok
+duration: 67.46 s
+output: 275518 tokens, 4084.4 tokens/s, 28.46 req/s
+TTFT (ms): p50 2161.9, p90 5602.3, p99 5943.8, max 6030.1 (n=1920)
+inter-token (ms): p50 10.4, p90 27.5, p99 47.3, max 182.2 (n=273598)
+end-to-end (s): p50 4.36, p90 7.54, p99 10.07, max 11.72 (n=1920)
+wrote results/d020-sat-graphs-rtx5090-seed2/b64-w0-r32.jsonl
+b64-w0-r32: ok
+done: 1 runs; not ok: none; contended: none
+== 2026-11-24T21:37:57Z engine saturation kernel+graphs seed 2 exit 0
+== 2026-11-24T21:37:59Z self-test before sat-s3 exit 0
+1 runs, 60 s of arrivals each
+requests: 1920/1920 ok
+duration: 66.96 s
+output: 276862 tokens, 4134.4 tokens/s, 28.67 req/s
+TTFT (ms): p50 1520.2, p90 3018.2, p99 3500.6, max 3550.5 (n=1920)
+inter-token (ms): p50 10.2, p90 27.4, p99 46.8, max 176.8 (n=274942)
+end-to-end (s): p50 3.36, p90 5.52, p99 7.61, max 9.24 (n=1920)
+wrote results/d020-sat-graphs-rtx5090-seed3/b64-w0-r32.jsonl
+b64-w0-r32: ok
+done: 1 runs; not ok: none; contended: none
+== 2026-11-24T21:39:29Z engine saturation kernel+graphs seed 3 exit 0
+1 runs, 60 s of arrivals each
+requests: 1920/1920 ok
+duration: 92.46 s
+output: 276862 tokens, 2994.3 tokens/s, 20.76 req/s
+TTFT (ms): p50 13944.3, p90 24801.6, p99 27044.9, max 27304.8 (n=1920)
+inter-token (ms): p50 16.2, p90 33.2, p99 51.5, max 172.0 (n=274942)
+end-to-end (s): p50 17.25, p90 27.21, p99 30.72, max 32.84 (n=1920)
+wrote results/d020-sat-eager-rtx5090-seed3/b64-w0-r32.jsonl
+b64-w0-r32: ok
+done: 1 runs; not ok: none; contended: none
+== 2026-11-24T21:41:24Z engine saturation kernel+eager seed 3 exit 0
+== 2026-11-24T21:41:34Z D020-SPEED-DONE

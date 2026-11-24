@@ -1226,6 +1226,36 @@ estimates are recorded here as if they were results.
   seed: the rest of the server dominates and graphs stop here; the step less than 8% shorter:
   the idle time is not launch gaps, and graphs stop here. Reported as diagnostic whatever it
   shows.
+- **Result of the graphs diagnostic (2026-11-24, same machine; commit `632be40`; self-test before
+  the profile and each seed; monitor on and `results/machine-audit-d020-speed.md`: all 8
+  saturation runs clean, other users' CPU at most 0.01 cores, no foreign GPU process;
+  `deploy/gpu_d020_speed.sh`, `results/profile-mix-d020-rtx5090.json`,
+  `results/d020-sat-{eager,graphs}-rtx5090-seed{0..3}/`). DIAGNOSTIC ONLY, NOT A CLAIM (gate
+  (a)(ii) failed in bf16).**
+  - *Real-mix step, batch 60, median wall ms, kernel eager then kernel plus graphs:* seed 0 8.77 to
+    7.94, seed 1 10.26 to 9.08, seed 2 9.21 to 7.74, seed 3 9.08 to 6.52; **9.5, 11.6, 16.0 and
+    28.1% shorter, mean 16.3%.** The GPU idle share falls from 21 to 37% to 12 to 14%.
+  - *Engine at saturation, batch 64, 32 req/s offered, delivered req/s, kernel eager then kernel
+    plus graphs:* seed 0 20.21 to 29.05, seed 1 20.96 to 29.72, seed 2 21.02 to 28.46, seed 3
+    20.76 to 28.67; **paired ratios 1.437, 1.418, 1.354 and 1.381, mean 1.398, lowest 1.354.**
+    Inter-token latency p50 fell from 16 to 17 ms to 9.6 to 10.4 ms. Every run completed all
+    1,920 requests. The eager-kernel figures (mean 20.74) agree with the D-025 diagnostic's
+    kernel runs (mean 21.59, same code) to 4%, so the sessions are consistent.
+  - *Against the predictions and reading fixed beforehand:* the step is 16% shorter (predicted 15
+    to 25%, met; every seed at least 8%, met). **The throughput prediction was wrong: the ratio
+    was predicted at 1.10 to 1.20 and is 1.35 to 1.44.** The reading that applies is the first
+    one: mean at least 1.10 and every seed at least 1.05, so graphs would have met the amended
+    (c) on the numbers, and a D-027 on their bf16 accuracy is worth writing. Why throughput
+    gains more than the isolated step does is not known; one untested explanation is that in the
+    running server the engine thread's Python and launch work competes with the web server's
+    threads for the interpreter lock, so removing about 950 launches per step helps more than
+    the isolated step profile shows (the profile has no server around it).
+  - *Together:* gather path 13.97 req/s (D-025 session), kernel 21.6, kernel plus graphs 29.0,
+    about 2.1 times the gather path in total; against vLLM's 59.6 req/s of an earlier session
+    (not measured in these sessions, so only a rough comparison) the gap is about 2.1 times,
+    from 4.2 times.
+  - **Still not a claim:** gate (a)(ii) failed (bf16 outputs not hash-identical to the eager
+    kernel path), each seed was run once per variant, one GPU, one model, one workload shape.
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
   saturation, the server path and prefill are (see D-021), which is a result. (b) fails: graphs
   do not remove the launch overhead in this design. (a) fails: revert. All pass: record the gain
@@ -1779,3 +1809,4 @@ Design ideas taken from public papers and documentation; no code was copied.
 | 2026-11-24 | Decode step on the real length mix against fixed 256-token sequences, batch 60 to 64, same session, RTX 5090 (D-020 prerequisite) | Wall ms per step and GPU idle share | 7.81 ms, 20% idle (fixed lengths, batch 64) | 20.1 ms mean (14.6 to 25.4), 9% idle (7 to 12%); attention plus gather 84% of GPU time; padded work x3.7 | `results/profile-mix-rtx5090.json`, `deploy/gpu_mix_profile.sh` |
 | 2026-11-24 | **Diagnostic, not a claim (D-025, gate (a) failed in bf16):** Triton decode attention against the gather path, engine at 32 req/s offered, batch 64, four seeds paired, alternating order, RTX 5090; real-mix step at batch 60 | Delivered req/s, mean of 4 (min to max); median step ms | 13.97 req/s (13.05 to 15.17), step 20.1 ms mean (gather) | 21.59 req/s (21.35 to 21.95), paired ratio 1.55 (1.42 to 1.68), step 9.4 ms mean (52% shorter) | `results/d025-sat-{gather,kernel}-rtx5090-seed*/`, `results/profile-mix-d025-rtx5090.json`, `deploy/gpu_d025_speed.sh` |
 | 2026-11-24 | bf16 logit error against an fp32 reference, Triton decode kernel against the gather path, 200 prompts x 63 decode steps (12,600 positions), RTX 5090 (D-026, post-hoc criteria written before the run) | Mean of the per-position maximum logit error; flips with truth margin at least 0.125 | 0.1495 (gather path), 9 flips | 0.1497 (kernel), ratio 1.001, 4 flips | `results/bf16-logit-error-*-rtx5090*.json`, `deploy/gpu_d026.sh` |
+| 2026-11-24 | **Diagnostic, not a claim (D-020, gate (a)(ii) failed in bf16):** CUDA graphs on top of the Triton kernel, engine at 32 req/s offered, batch 64, four seeds paired, alternating order, RTX 5090; real-mix step at batch 60 | Delivered req/s, mean of 4 (min to max); median step ms | 20.74 req/s (20.21 to 21.02), step 9.33 ms mean (kernel eager) | 28.98 req/s (28.46 to 29.72), paired ratio 1.40 (1.35 to 1.44), step 7.82 ms mean (16% shorter) | `results/d020-sat-{eager,graphs}-rtx5090-seed*/`, `results/profile-mix-d020-rtx5090.json`, `deploy/gpu_d020_speed.sh` |
