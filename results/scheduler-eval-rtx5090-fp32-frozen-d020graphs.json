@@ -1,0 +1,84 @@
+{
+  "meta": {
+    "block_size": 16,
+    "captured_at_utc": "2026-11-24T21:19:19+00:00",
+    "cuda_graphs": true,
+    "device": "NVIDIA GeForce RTX 5090",
+    "dtype": "float32",
+    "label": "rtx5090-fp32-frozen-d020graphs",
+    "model": "Llama-3.2-1B-Instruct",
+    "paged_attention_kernel": true,
+    "prompt_set": {
+      "counts": {
+        "code": 15,
+        "prose": 20,
+        "random": 15
+      },
+      "seed": 0,
+      "sha256": "88384e1042e832370affae8c58a57935e4cca1e42797d596e30df790dbc8a53e",
+      "source": "greedy-eval-rtx5090-bf16.json"
+    },
+    "reference": "transformers generate, greedy, EOS disabled, same device and dtype",
+    "tokens": 64,
+    "torch": "2.15.0+cu132"
+  },
+  "prefix_cache_on_vs_off": {
+    "diverged": [],
+    "identical": 50,
+    "prompts": 50
+  },
+  "results": {
+    "no-prefix-cache": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 658,
+        "prefix_caching": false
+      },
+      "diverged": [],
+      "identical": 50,
+      "outputs_sha256": "88fefba995dcf784dd88798f1f1bcea0b321f4e5f07fddb457b778a67f1b3a3c",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 0,
+        "steps": 127
+      }
+    },
+    "preempting": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 138,
+        "prefix_caching": true
+      },
+      "diverged": [],
+      "identical": 50,
+      "outputs_sha256": "88fefba995dcf784dd88798f1f1bcea0b321f4e5f07fddb457b778a67f1b3a3c",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 16.394736842105264,
+        "preemptions": 35,
+        "prefix_hit_tokens": 80,
+        "steps": 191
+      }
+    },
+    "served": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 658,
+        "prefix_caching": true
+      },
+      "diverged": [],
+      "identical": 50,
+      "outputs_sha256": "88fefba995dcf784dd88798f1f1bcea0b321f4e5f07fddb457b778a67f1b3a3c",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 0,
+        "steps": 127
+      }
+    }
+  },
+  "schema_version": 1
+}

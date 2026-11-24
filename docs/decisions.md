@@ -1182,6 +1182,35 @@ estimates are recorded here as if they were results.
     (equal output hashes), is **unchanged and still strict**, and, since the batch shape does
     reach the numerics, it may fail for the same reason; if it does, that is recorded as a
     failure of (a) and not explained away.
+- **Gates result of the re-test (2026-11-24, same machine; self-test first, monitor on; commit
+  `1dfe734` for the passing run; `results/d020-gates-{2,3}-*`,
+  `results/scheduler-eval-rtx5090-{fp32,bf16}-{frozen,prefix}-d020graphs.json`).** Session 2
+  (`d020-gates-2-*`) ran the revised GPU tests (4 of 4 pass) and then every scheduler evaluation
+  stopped on a harness bug of mine: the evaluation's leak check counted the decoder's reserved
+  scratch block as a leaked block (fixed, with a test that the check still catches a real leak).
+  Session 3 (`d020-gates-3-*`) is the complete run.
+  - **GPU tests, 4 of 4 pass:** (iv-a) a captured step without padding is bit-equal to the eager
+    kernel path in fp32; (iv-b) over eight padded steps seven are bit-equal to eager and the
+    worst difference is 1.8e-7, with the live blocks within 1e-6; (iv-c) with the scratch block
+    set to NaN the real rows' logits and all live blocks are bit-identical to the unpoisoned run,
+    so padding rows cannot influence real rows; (iv-d) eager row 0 at batch 1 against batch 2,
+    with no graph, also differs by 1.8e-7, so **the hypothesis is confirmed: the difference is
+    batch-shape dependence of the GEMMs, not padding and not capture.**
+  - **(a)(i) and (iii), fp32: met.** With the kernel and graphs, 50 of 50 identical to Hugging
+    Face in all three configurations on the frozen prompts (35 forced preemptions) and on the
+    shared-prefix prompts (43,008 prompt tokens from the cache). **The fp32 outputs are
+    hash-identical to the eager kernel path's in all six configurations.**
+  - **(a)(ii) as fixed in amendment 2, NOT met:** in bf16 the graph path's outputs are **not**
+    hash-identical to the eager kernel path's in any of the six configurations. Identical to
+    Hugging Face, eager kernel against graphs: frozen 29, 33, 29 against 31, 32, 31 of 50
+    (no-cache, preempting, served); shared-prefix 43, 41, 41 against 41, 40, 40. One graph-path
+    divergence is above 0.125 (0.1875, shared-prefix set), as the eager kernel's was in D-025; the
+    rest are at most 0.125. The cause is the confirmed one: padding to a bucket changes the batch
+    shape the GEMMs see, so bf16 rounding differs on near-ties; no evidence points at the
+    capture or the padding, but the criterion asked for identical tokens and the tokens are not
+    identical. As written in advance, **this is recorded as a failure of (a); nothing is claimed
+    about graphs.** The code stays in the repository, opt-in and off by default, unclaimed (the
+    default path was never changed by it, so there is nothing else to revert).
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
   saturation, the server path and prefill are (see D-021), which is a result. (b) fails: graphs
   do not remove the launch overhead in this design. (a) fails: revert. All pass: record the gain

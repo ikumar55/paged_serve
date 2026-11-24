@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0 -- <home>/pagedserve_work/venvs/pagedserve/bin/python
+rootdir: <home>/pagedserve_work/paged_serve
+configfile: pyproject.toml
+plugins: anyio-4.16.0
+collecting ... collected 4 items
+
+tests/test_cuda_graph_gpu.py::test_a_captured_step_without_padding_is_bit_equal_to_eager PASSED
+tests/test_cuda_graph_gpu.py::test_padded_steps_leave_real_rows_and_live_blocks_equal_to_eager padded steps bit-equal to eager: 7 of 8; worst difference 1.7881393432617188e-07
+PASSED
+tests/test_cuda_graph_gpu.py::test_padding_rows_cannot_influence_real_rows_at_all PASSED
+tests/test_cuda_graph_gpu.py::test_eager_itself_depends_on_the_batch_shape_at_the_noise_level eager batch 1 against batch 2, row 0: bit-equal False, max difference 1.7881393432617188e-07
+PASSED
+
+=============================== warnings summary ===============================
+tests/test_cuda_graph_gpu.py::test_a_captured_step_without_padding_is_bit_equal_to_eager
+  <home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+    warn_once(FP_FUSION_DEFAULT_WARNING)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================= 4 passed, 1 warning in 2.13s =========================

@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "block_size": 16,
+    "captured_at_utc": "2026-11-24T21:19:58+00:00",
+    "cuda_graphs": true,
+    "device": "NVIDIA GeForce RTX 5090",
+    "dtype": "float32",
+    "label": "rtx5090-fp32-prefix-d020graphs",
+    "model": "Llama-3.2-1B-Instruct",
+    "paged_attention_kernel": true,
+    "prompt_set": {
+      "count": 50,
+      "groups": 8,
+      "prefix_len": 1024,
+      "seed": 0,
+      "sha256": "2db1602012a4f25acd36f94d0457c8c7b8450c858373a17b47de5b2fce002466",
+      "source": "synthetic shared prefixes",
+      "suffix_len": 64
+    },
+    "reference": "transformers generate, greedy, EOS disabled, same device and dtype",
+    "tokens": 64,
+    "torch": "2.15.0+cu132"
+  },
+  "prefix_cache_on_vs_off": {
+    "diverged": [],
+    "identical": 50,
+    "prompts": 50
+  },
+  "results": {
+    "no-prefix-cache": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 3658,
+        "prefix_caching": false
+      },
+      "diverged": [],
+      "identical": 50,
+      "outputs_sha256": "8294280bbd13d623b6da72639b0833a4251025eeb677266c79c17794444cb69a",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 0,
+        "steps": 127
+      }
+    },
+    "preempting": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 778,
+        "prefix_caching": true
+      },
+      "diverged": [],
+      "identical": 50,
+      "outputs_sha256": "8294280bbd13d623b6da72639b0833a4251025eeb677266c79c17794444cb69a",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 43008,
+        "steps": 127
+      }
+    },
+    "served": {
+      "config": {
+        "max_batch_size": 32,
+        "num_blocks": 3658,
+        "prefix_caching": true
+      },
+      "diverged": [],
+      "identical": 50,
+      "outputs_sha256": "8294280bbd13d623b6da72639b0833a4251025eeb677266c79c17794444cb69a",
+      "prompts": 50,
+      "scheduler": {
+        "mean_decode_batch": 25.0,
+        "preemptions": 0,
+        "prefix_hit_tokens": 43008,
+        "steps": 127
+      }
+    }
+  },
+  "schema_version": 1
+}

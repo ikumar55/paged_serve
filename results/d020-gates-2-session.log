@@ -1,0 +1,88 @@
+== 2026-11-24T21:11:41Z d020-gates-2 start; gpu: 0 %, 2 MiB
+== 2026-11-24T21:11:41Z code installed, commit de9e3b8c2617b437eb4329924661274a08c4368a
+== 2026-11-24T21:11:49Z self-test exit 0
+SKIPPED [1] tests/test_paged_attention.py:196: checks the no-GPU message
+29 passed, 1 skipped in 2.76s
+== 2026-11-24T21:11:56Z graph GPU tests exit 0
+  <home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENAB
+    warn_once(FP_FUSION_DEFAULT_WARNING)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================= 4 passed, 1 warning in 2.35s =========================
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:  58%|█████▊    | 84/146 [00:00<00:00, 824.42it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 922.98it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+reference done in 19s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+served: 50/50 identical, 0 preemptions
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 388, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 320, in main
+    produced, stats = run_scheduler(
+                      ^^^^^^^^^^^^^^
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 88, in run_scheduler
+    raise RuntimeError("blocks leaked")
+RuntimeError: blocks leaked
+== 2026-11-24T21:12:25Z scheduler-eval fp32-frozen-d020graphs exit 1
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:  46%|████▌     | 67/146 [00:00<00:00, 661.05it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 834.80it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+reference done in 24s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+served: 50/50 identical, 0 preemptions
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 388, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 320, in main
+    produced, stats = run_scheduler(
+                      ^^^^^^^^^^^^^^
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 88, in run_scheduler
+    raise RuntimeError("blocks leaked")
+RuntimeError: blocks leaked
+== 2026-11-24T21:13:01Z scheduler-eval fp32-prefix-d020graphs exit 1
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 10470.16it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+reference done in 19s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+served: 31/50 identical, 0 preemptions
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 388, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 320, in main
+    produced, stats = run_scheduler(
+                      ^^^^^^^^^^^^^^
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 88, in run_scheduler
+    raise RuntimeError("blocks leaked")
+RuntimeError: blocks leaked
+== 2026-11-24T21:13:27Z scheduler-eval bf16-frozen-d020graphs exit 1
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 10756.14it/s]
+[transformers] The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+reference done in 20s
+<home>/pagedserve_work/venvs/pagedserve/lib/python3.12/site-packages/triton/knobs.py:504: UserWarning: TRITON_DEFAULT_FP_FUSION is unset: defaulting to FP fusion ENABLED for backward compatibility in Triton 3.9. The default will change to DISABLED in Triton 3.10; set TRITON_DEFAULT_FP_FUSION=1 to keep fusion enabled or =0 to adopt the new default early and silence this warning.
+  warn_once(FP_FUSION_DEFAULT_WARNING)
+served: 40/50 identical, 0 preemptions
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 388, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 320, in main
+    produced, stats = run_scheduler(
+                      ^^^^^^^^^^^^^^
+  File "<home>/pagedserve_work/paged_serve/bench/scheduler_eval.py", line 88, in run_scheduler
+    raise RuntimeError("blocks leaked")
+RuntimeError: blocks leaked
+== 2026-11-24T21:13:56Z scheduler-eval bf16-prefix-d020graphs exit 1
+== 2026-11-24T21:14:06Z D020-GATES-DONE
