@@ -1490,6 +1490,38 @@ estimates are recorded here as if they were results.
   have met (c) on the numbers, which makes a D-026 for the bf16 question worth writing, still
   without any claim from this run. Whatever happens, the figures are reported as diagnostic and
   labelled so.
+- **Result of the diagnostic (2026-11-24, same Capsule RTX 5090 machine; commit `00be5dc`, kernel =
+  the session 2 version; self-test passed before the profile and before each seed; machine monitor
+  on and `results/machine-audit-d025-speed.md`: all 8 saturation runs clean, other users' CPU at
+  most 0.01 cores, no foreign GPU process; `deploy/gpu_d025_speed.sh`,
+  `results/profile-mix-d025-rtx5090.json`, `results/d025-sat-{gather,kernel}-rtx5090-seed{0..3}/`).
+  DIAGNOSTIC ONLY, NOT A CLAIM (gate (a) failed in bf16).**
+  - *Real-mix decode step, batch 60, median wall ms per step, gather then kernel:* seed 0 20.67 to
+    9.15, seed 1 25.41 to 10.10, seed 2 19.63 to 9.17, seed 3 14.60 to 9.03; **55.7, 60.3, 53.3
+    and 38.2% shorter, mean 51.8%.** The gather path's step times reproduce the earlier profile
+    (20.80, 25.40, 19.65, 14.61). With the kernel the gather and copy share of GPU time falls from
+    32 to 39% to 4 to 5%, and the GPU is idle 20 to 37% of the step (it was 7 to 12%), so the step
+    is no longer GPU-bound and launch overhead now matters: D-020 (CUDA graphs) is worth
+    re-testing.
+  - *Engine at saturation, batch 64, 32 req/s offered, delivered req/s, gather then kernel:* seed 0
+    13.38 to 21.51, seed 1 15.17 to 21.56, seed 2 13.05 to 21.95, seed 3 14.30 to 21.35; **paired
+    ratios 1.607, 1.421, 1.682 and 1.493, mean 1.551, lowest 1.421** (tokens per second give the
+    same ratios). Inter-token latency p50 fell from 25 to 28.5 ms to 15.4 to 15.9 ms. The kernel
+    runs completed all 1,920 requests every time; the gather runs completed 1,750, 1,913, 1,767
+    and 1,838 (the rest did not finish; the cause was not examined). The gather runs' throughput
+    (13.1 to 15.2) matches the earlier engine saturation figures (14.2, range 13.2 to 16.0), so
+    this session was consistent with the earlier ones.
+  - *Against the predictions and reading fixed beforehand:* the step is 38 to 60% shorter
+    (predicted about 40 to 60%), throughput rises 1.42 to 1.68 times (predicted 1.3 to 1.8),
+    zero failed requests with the kernel. The third reading applies: **mean paired ratio at least
+    1.30 and every seed at least 1.15, so the kernel would have met (c) on the numbers, and a
+    D-026 for the bf16 question is worth writing.** It is still not a claim: the correctness gate
+    failed in bf16, the order of runs alternated but each seed was run once per variant, the
+    sweep's own contention flag marked the seed 3 gather run (one 19% GPU reading in five before
+    the run; the audit finds it clean) and the figures come from one GPU, one model and one
+    workload shape. For scale, vLLM's saturated figure from an earlier session (59.6 req/s, not
+    measured in this session, so only a rough comparison) is about 2.8 times this engine with the
+    kernel, against 4.2 times without it.
 - **Measured effect:** none claimed. The kernel is correct in fp32 (scheduler 50 of 50 identical to
   Hugging Face on both prompt sets, three configurations each, preemptions and cache hits
   included; error against float64 at most 0.57 times the gather path's) but **fails the fixed bf16
@@ -1535,3 +1567,4 @@ Design ideas taken from public papers and documentation; no code was copied.
 | 2026-11-24 | CUDA graphs disabled in vLLM (`--enforce-eager`), same workload and rate, two seeds (D-019) | Delivered throughput at 64 req/s offered, req/s | 59.5 (vLLM default, seeds 0 and 1) | 29.3 (eager: 29.01 and 29.56); inter-token latency 3 ms to 6.5 to 7.1 ms | `results/sat-vllm-eager-rtx5090-seed{0,1}/`, `deploy/gpu_pass5.sh` |
 | 2026-11-24 | Scheduler cost per generated token offline on the server's own requests (real length mix) against fixed 256-token sequences, batch 64, prefix cache on (D-021) | ms per token, mean of 4 seeds | 0.187 (fixed lengths) | 0.382 (real mix), 2.04 times; the prefix cache adds 0.5 to 0.8% | `results/offline-workload-rtx5090.json`, `deploy/gpu_offline_workload.sh` |
 | 2026-11-24 | Decode step on the real length mix against fixed 256-token sequences, batch 60 to 64, same session, RTX 5090 (D-020 prerequisite) | Wall ms per step and GPU idle share | 7.81 ms, 20% idle (fixed lengths, batch 64) | 20.1 ms mean (14.6 to 25.4), 9% idle (7 to 12%); attention plus gather 84% of GPU time; padded work x3.7 | `results/profile-mix-rtx5090.json`, `deploy/gpu_mix_profile.sh` |
+| 2026-11-24 | **Diagnostic, not a claim (D-025, gate (a) failed in bf16):** Triton decode attention against the gather path, engine at 32 req/s offered, batch 64, four seeds paired, alternating order, RTX 5090; real-mix step at batch 60 | Delivered req/s, mean of 4 (min to max); median step ms | 13.97 req/s (13.05 to 15.17), step 20.1 ms mean (gather) | 21.59 req/s (21.35 to 21.95), paired ratio 1.55 (1.42 to 1.68), step 9.4 ms mean (52% shorter) | `results/d025-sat-{gather,kernel}-rtx5090-seed*/`, `results/profile-mix-d025-rtx5090.json`, `deploy/gpu_d025_speed.sh` |

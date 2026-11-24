@@ -29,7 +29,7 @@ tests, and the scheduler is 50 of 50 identical to Hugging Face in fp32 (preempti
 prefix-cache hits included). One bf16 divergence (0.1875, limit 0.125) remained after the one
 allowed fix, so by the rule fixed in advance the gate is recorded as failed, the kernel is
 reverted to its session 2 version (opt-in, unclaimed) and speed was not measured. **Next action
-is the owner's decision** (D-025 build log lists three ways forward); nothing else is started.) Done and recorded: step 1 (pass 5: capacity, attribution, eager control, prefix-cache
+is the owner's decision** (D-025 build log lists three ways forward). **A diagnostic speed run (not a claim) then showed the kernel makes the real-mix step 52% shorter and saturated throughput 1.55 times (every seed 1.42 or more), so the kernel is worth a pre-registered D-026 for the bf16 question; nothing else is started.) Done and recorded: step 1 (pass 5: capacity, attribution, eager control, prefix-cache
 correctness), step 2 (the D-021 follow-up: the real length mix doubles the step cost, the cache
 costs under 1%, the server adds 19 to 31% on top) and step 3 (the real-mix profile: the saturated
 step is GPU-bound, attention and gather 84% of GPU time, padded work x3.7, so **D-020 CUDA graphs
