@@ -976,8 +976,8 @@ estimates are recorded here as if they were results.
     offline run is not a like-for-like control: it had the prefix cache off and fixed 256 and 128
     token lengths, while the server had the cache on (34,000 evictions per run on random prompts
     that hit nothing) and a lognormal length mix that pads every step to the longest sequence.
-    A controlled offline run with the server's lengths and the cache on and off is the next
-    measurement (D-021).
+    The controlled offline run that followed (D-021) put the real length mix back: 0.38 ms per
+    token, twice this run's, and the cache costs under 1%; the server remains 19 to 31% above it.
   - **Capacity, measured above the arrival cap (pass 5, `results/saturation-rtx5090.md`,
     `bench/saturation_report.py`).** The engine and Hugging Face were offered 32 req/s and vLLM 64
     req/s (above what each serves), four seeds, the three systems interleaved within each seed so
@@ -1066,6 +1066,19 @@ estimates are recorded here as if they were results.
   slower than the fixed-length profile (D-021), so only part of the step is launch overhead. The
   25% bar for (c) remains inside the plausible range but not a foregone conclusion, and the
   D-021 follow-up (the real length mix offline) should be read first.
+- **Prerequisite measurement, added 2026-11-24 after the D-021 follow-up and before any
+  implementation (criteria above unchanged).** The profile behind this entry used 32 sequences of
+  exactly 256 tokens; the real mix doubles the step cost (D-021), and the independent review asked
+  for the step to be measured on it. So before building graphs, profile the decode step on a
+  batch whose context lengths are drawn from the standard workload at the mean batch the server
+  sees at saturation (about 60). Predictions, written now: (1) the GPU is idle for less than 35%
+  of that step (it was 39% at batch 64 with fixed lengths), which would cap what graphs can give
+  at about 1.5 times for the step; (2) attention plus gather and copy are at least 60% of the GPU
+  busy time (they were 56% at batch 64). Interpretation: if (1) and (2) hold, graphs alone cannot
+  reach the 25% end-to-end bar and the larger lever is the attention and gather path, so D-020 is
+  run as written only as a bounded, expected-partial experiment, with the fused-attention work
+  ranked above it; if the GPU is still idle more than 45% of the step, graphs are worth running
+  first.
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
   saturation, the server path and prefill are (see D-021), which is a result. (b) fails: graphs
   do not remove the launch overhead in this design. (a) fails: revert. All pass: record the gain
@@ -1132,6 +1145,37 @@ estimates are recorded here as if they were results.
   prefills (so a fused paged-attention kernel and cheaper cache bookkeeping come before any server
   change); if it is more than 20% below, the remainder is contention or event-loop cost and the
   candidate fixes above are tried next, each with its own criteria written first.
+- **Result of the follow-up (2026-11-24, `results/offline-workload-rtx5090.json`, batch 64, the
+  standard workload's own 1,920 requests per seed, machine monitor running).** Cost per generated
+  token inside the scheduler step, offline, in ms:
+
+  | Seed | cache off | cache on | server (pass 5) | server / offline (cache on) |
+  | ---: | ---: | ---: | ---: | ---: |
+  | 0 | 0.385 | 0.388 | 0.510 | 1.31 |
+  | 1 | 0.359 | 0.361 | 0.428 | 1.19 |
+  | 2 | 0.397 | 0.400 | 0.496 | 1.24 |
+  | 3 | 0.376 | 0.379 | 0.488 | 1.29 |
+
+  Prediction (a), at least 1.5 times the fixed-length cost from the length mix alone: **met**
+  (mean 0.382 against 0.187, **2.04 times**). Prediction (b), the cache adding at least 10% per
+  token on a workload where it never hits: **not met**: it adds **0.5 to 0.8%** even with 38,000
+  to 40,000 block evictions per run, so the cache's bookkeeping is negligible. The interpretation
+  rule fixed above gives a mixed answer: the server's cost is within 20% of the offline cost in 1
+  of the 4 seeds (it is 19 to 31% higher, mean 26%), so neither clean outcome applies. What the
+  data support: **about three quarters of the server's step cost is reproduced offline from the
+  workload alone** (the real length mix doubles the cost relative to fixed 256-token sequences),
+  and a remainder of about a fifth to a quarter of the server's cost per token (19 to 31%) is not
+  explained by the workload or the cache; interpreter-lock contention or extra Python in the
+  server process would fit but is untested. Offline the scheduler delivers 2,500 to 2,770 tokens/s
+  (17.4 to 19.4 req/s) against the server's 2,050 (14.2): 1.27 times. Offline, decode is 82 to
+  84% of the time and admission (the one-at-a-time prefills) 16 to 18%.
+  **Consequences:** the lever with the most in it is whatever makes the step cost depend on the
+  length mix, the padded gather and masked attention (not measured separately here: whether the
+  doubling is padding to the longest sequence or longer contexts needs the paging experiment's
+  length statistics, D-023); fixing the server layer could recover at most about 20 to 25%. A
+  first attempt at this run failed after four runs with a GPU out-of-memory error from a harness
+  bug (a reference cycle kept each run's KV pool alive); its four completed runs, seen only in
+  the log, agree with this rerun to within 0.001 ms per token, and the bug is fixed and tested.
 - **Measured effect:** the attribution above; no speed change has been made.
 
 ### D-022 Router on real engine replicas (PLANNED, criteria fixed in advance)
@@ -1258,3 +1302,4 @@ Design ideas taken from public papers and documentation; no code was copied.
 | 2026-11-23 | Machine monitor and audit added for shared benchmark machines (D-019); pass 4 repeats 20 configurations of pass 2 under the monitor | Throughput difference between a repeat and its original, mean absolute, 17 pairs neither flagged contended | not measurable before (no monitor; the sweep's own check saw only 5 GPU samples before a run) | 1.3% (max 4.6%); 29 monitored runs audit clean | `results/repro-vs-original-rtx5090.md`, `results/machine-audit-p3-p4.md`, `python -m bench.repro_compare ...` |
 | 2026-11-24 | vLLM against the engine at saturation, RTX 5090, standard workload, offered above capacity (engine 32 req/s batch 64, vLLM 64 req/s with 32 sequences), four seeds paired (D-019) | Delivered throughput, req/s, mean (min to max) | 14.20 (13.22 to 15.99) (engine) | 59.63 (58.73 to 60.78) (vLLM), 4.22 times the engine per seed (3.71 to 4.51) | `results/saturation-rtx5090.md`, `bench/saturation_report.py`, `deploy/gpu_pass5.sh` |
 | 2026-11-24 | CUDA graphs disabled in vLLM (`--enforce-eager`), same workload and rate, two seeds (D-019) | Delivered throughput at 64 req/s offered, req/s | 59.5 (vLLM default, seeds 0 and 1) | 29.3 (eager: 29.01 and 29.56); inter-token latency 3 ms to 6.5 to 7.1 ms | `results/sat-vllm-eager-rtx5090-seed{0,1}/`, `deploy/gpu_pass5.sh` |
+| 2026-11-24 | Scheduler cost per generated token offline on the server's own requests (real length mix) against fixed 256-token sequences, batch 64, prefix cache on (D-021) | ms per token, mean of 4 seeds | 0.187 (fixed lengths) | 0.382 (real mix), 2.04 times; the prefix cache adds 0.5 to 0.8% | `results/offline-workload-rtx5090.json`, `deploy/gpu_offline_workload.sh` |

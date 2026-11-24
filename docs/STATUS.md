@@ -90,8 +90,11 @@ engine is still about 2 times behind eager vLLM. The engine's inter-token latenc
 low load against vLLM's 2 to 3 ms, and 22 to 27 ms at 16 req/s; the decode-step profile (D-003)
 shows the step is launch-bound at small batches, and at saturation the engine thread is busy
 inside the scheduler step 97 to 98% of the time, a step about 2.5 times slower than the
-fixed-length profile (D-021); why is the next measurement. Spread across seeds is 2 to 16%. One
-GPU, one model, one workload shape. Tables: `results/variation-*-rtx5090.md`.
+fixed-length profile. The follow-up (D-021) explains most of that: offline, on the server's own
+requests, the step costs 0.38 ms per token, twice the fixed-length figure, so the real length mix
+(padding, longer contexts) is the main cause; the prefix cache costs under 1%; the server adds a
+further 19 to 31% that is not explained. Spread across seeds is 2 to 16%. One GPU, one model, one
+workload shape. Tables: `results/variation-*-rtx5090.md`.
 
 **Prefix cache (shared-prefix workload, 8 x 1024-token prefixes):** the engine's hit rate was 89 to
 92% with the cache on; median time to first token fell 17 to 22% (32 against 41 ms at 4 req/s) and,
