@@ -1,9 +1,9 @@
 # Deploying pagedserve: Docker and Kubernetes
 
-**Status (2026-11-24): written and checked offline, never built or applied.** No Docker, cluster
-or GPU was available while these files were written. What has been verified, and what has not, is
-spelled out at the end. Treat the first build and the first `kubectl apply` as the first real test,
-and send what breaks back into this document.
+**Status (2026-11-24): the three images build, and the mock stack runs on Docker Desktop (WSL 2) on
+a Windows laptop; the Kubernetes manifests and the GPU path have never been applied or run.** What
+has been verified, and what has not, is spelled out at the end. Treat the first `kubectl apply` and the
+first GPU run as the first real tests, and send what breaks back into this document.
 
 | Path | What it is |
 | --- | --- |
@@ -19,8 +19,9 @@ and send what breaks back into this document.
 
 ## Prerequisites
 
-- **Images:** Docker (or another OCI builder). The engine image downloads PyTorch with CUDA (a few
-  gigabytes), even for the mock demo, because `engine.server` imports it.
+- **Images:** Docker (or another OCI builder). The engine image is about 9 GB, because it carries
+  PyTorch with CUDA, even for the mock demo (`engine.server` imports PyTorch); the router image is
+  213 MB and the load generator image 416 MB.
 - **GPU in containers:** an NVIDIA driver on the host and the NVIDIA Container Toolkit. The CUDA
   runtime is inside the PyTorch wheels, so the image itself does not need a CUDA base image. The
   benchmark machine's driver advertised CUDA 13.0 while the wheel is built for 13.2 and still passed
@@ -40,7 +41,9 @@ docker compose -f deploy/docker/compose.mock.yaml --profile load run --rm loadge
 ```
 
 The mock backend has placeholder timings (`engine/mock.py`): this exercises routing, streaming and
-health checks, and says nothing about performance. Results of the load run land in `deploy/docker/out/`.
+health checks, and says nothing about performance (the load generator itself warns that a result
+without `--server-env` must not be published). Results of the load run land in `deploy/docker/out/`,
+which is git-ignored.
 
 ## 2. Build the images
 
@@ -111,14 +114,25 @@ was deliberately broken.
 
 ## What is verified and what is not
 
-Verified (offline, 2026-11-24): the Dockerfiles pass hadolint; the three kustomizations render and
+Verified offline (2026-11-24): the Dockerfiles pass hadolint; the three kustomizations render and
 validate against the Kubernetes 1.34 schemas; the argument lists parse; names, ports, routes and tags
 agree; the overlays do what they claim.
 
-**Not verified: that any image builds; that a container starts; that the GPU is visible inside it;
-that Triton can compile its kernel there; that the probes, the read-only root file system and the
-non-root user work with PyTorch and Triton; that the pods schedule; that the router reaches the
-replicas.** If a first start fails, try these in this order:
+**Verified by running it (2026-11-24, Docker Desktop 4.100 with WSL 2, Docker 29.9, a Windows laptop
+with no GPU):** all three images build from the Dockerfiles on the first attempt (the engine image in
+about 4 minutes, mostly the PyTorch download); `docker compose -f deploy/docker/compose.mock.yaml up`
+starts two mock engine replicas and the router, all three report healthy through the images' own
+`HEALTHCHECK`s within seconds; the router lists both replicas healthy and a request through it returns
+tokens; the load generator container ran 160 requests through the router, 160 of 160 succeeded, and wrote its
+result file; stopping one engine container leaves requests succeeding (8 of 8, one failover, the
+other replica takes the load) and the router takes the replica back after it restarts. Run as the
+non-root user 10001 throughout.
+
+**Not verified: that the GPU is visible inside the container; that Triton can compile its kernel
+there; that any Kubernetes manifest applies, that the probes, the read-only root file system and
+pod scheduling work on a cluster (the mock overlay can be tried on a local `kind` cluster, which
+has not been done yet); that the weights volume mounts and is readable by user 10001.** If a first
+start fails, try these in this order:
 1. `readOnlyRootFilesystem` (set it to `false` in `k8s/base/*.yaml` to see whether a library wants to
    write somewhere other than `/tmp` and `/home/app/.triton`);
 2. the Triton compile (it needs `gcc`, installed in the engine image) and the driver against the

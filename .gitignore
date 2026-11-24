@@ -39,3 +39,6 @@ LOCAL_*.md
 *.qdrep
 *.ncu-rep
 profiles/
+
+# Output of the mock compose stack's load generator (placeholder timings, not results)
+deploy/docker/out/

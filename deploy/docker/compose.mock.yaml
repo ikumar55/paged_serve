@@ -1,12 +1,13 @@
 # A whole pagedserve stack on one machine with NO GPU and NO model weights: two mock engine
 # replicas behind the router, and an optional load generator.
 #
-# STATUS: written 2026-11-24 on a machine without Docker; its structure is checked by
-# tests/test_deploy_files.py, but it has NEVER BEEN RUN.
+# STATUS: run on 2026-11-24 on Docker Desktop (WSL 2) on a laptop without a GPU: the images build,
+# all three services report healthy, the router serves requests through both replicas, the load
+# generator profile completes (160 of 160 requests), and stopping one engine fails over.
 #
 # The mock backend (engine/mock.py) has placeholder timings: this shows the plumbing (routing,
 # streaming, health checks), not performance. The engine image still installs PyTorch, which the
-# server imports, so the first build downloads a few gigabytes.
+# server imports, so it is about 9 GB and the first build downloads a few gigabytes.
 #
 #   docker compose -f deploy/docker/compose.mock.yaml up --build
 #   curl http://localhost:9000/info
