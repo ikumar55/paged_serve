@@ -1844,6 +1844,56 @@ estimates are recorded here as if they were results.
 - **To do:** rerun `deploy/gpu_d027.sh` with `TAG=d027-2 PREFIX=graphs2-rtx5090` when the machine
   is available, and record `graph_statistics` (expect 63 replays per prompt set in bucket 56).
 
+### D-028 Where does the saturated engine thread's time go now, with the kernel and graphs? (PLANNED, predictions fixed in advance)
+
+- **Status:** planned 2026-11-24; **nothing is built or measured yet** (the GPU machine is off
+  limits for now, so only the accounting code, its tests and the report tool are written first;
+  the measurement waits for the machine). Follows from D-025 and D-020: with the Triton kernel and
+  CUDA graphs the engine saturates at about 29 req/s (diagnostics, not claims), against 14 req/s
+  for the gather path, and vLLM's figure from an earlier session is 59.6 req/s.
+- **Why this question, from numbers already in the repository (an estimate that combines runs
+  of different sessions, so it is a pointer, not a measurement):** at 29 req/s and about 142
+  generated tokens per request (3,078 tokens/s at 21.6 req/s in the D-025 kernel runs) the engine
+  produces about 4,100 tokens/s; with the mean decode batch of about 58 that D-021 measured for
+  the gather path (not measured with graphs), that is about 71 decode steps a second, about 14 ms
+  per cycle, while the isolated real-mix decode step with graphs is 7.8 ms (D-020 diagnostic). So
+  **about 40 to 45% of the engine thread's time is not the decode step.** D-021's offline run put
+  admission (the one-at-a-time prefills) at 16 to 18% of the scheduler's time with the gather path
+  and left 19 to 31% of the server's cost unexplained; routing and the inbox are 2 to 5% (D-021).
+- **Hypothesis:** the non-decode time is mostly admission. Each admitted prompt is its own forward
+  pass; for a prompt of a few hundred tokens that pass is launch-bound, about as expensive as a
+  decode step (about 950 kernels, 7 to 9 ms), and about 0.4 prompts are admitted per decode step
+  at saturation (29 req/s over 71 steps/s), which is about 3 to 4 ms of the 14 ms cycle. If so,
+  prefill is now the largest single piece after decode, and the lever is to prefill several waiting
+  prompts in one forward pass (and later to capture prefill too), not to touch decode again.
+- **What is added (accounting only; behaviour unchanged, so a throughput check against the D-020
+  graph runs shows it costs nothing):** `Scheduler` times its three phases (making room for the
+  decode, the batched decode, admission with its prefills) and counts admitted prompts and
+  prefilled tokens, reported in `stats()`, hence in `/info`, which the load generator already
+  records at the start and end of every run; and `bench.phase_report`, which turns a sweep
+  directory's start and end records into the table below.
+- **Measurement (when the machine is available):** `bench.sweep --system engine` with
+  `--server-arg=--paged-attention-kernel --server-arg=--cuda-graphs`, batch 64, 32 req/s offered,
+  60 s, kv cache 8 GB, seeds 0 to 3, self-test before each seed, monitor and audit as always; no
+  comparison arm is needed (the reference throughput is the D-020 graph arm, mean 28.98 req/s).
+- **Predictions, written now:** (1) admission is 20 to 35% of the engine thread's `step` time;
+  (2) the batched decode is 50 to 70%; (3) making room and the Python between phases is under 5%;
+  (4) routing plus inbox stay under 5% of the thread's time; (5) the mean cost of one admitted
+  prompt (admission seconds per prefill) is 5 to 12 ms; (6) throughput with the accounting on is
+  within 3% of the D-020 graph arm (28.98 req/s) on the same seeds.
+- **Interpretation, fixed now:** admission at least 20% of `step`: the next experiment is
+  batched prefill (several waiting prompts in one forward pass, padded with a mask, their keys
+  and values written to each sequence's blocks), pre-registered as D-029 with its own criteria
+  before any code, and prefill under graphs after it. Admission under 10%: prefill is not the
+  lever; the remainder is the server (routing, inbox, interpreter-lock contention with the HTTP
+  event loop; D-021's candidates: a shorter switch interval, one push per step, the scheduler in
+  its own process), each a separate experiment with criteria first. Admission 10 to 20%: both
+  are modest; rank them by size and write the plan for the larger. Decode above 70% with
+  admission under 20%: the 14 ms estimate was wrong (the mean batch or the token count differs
+  with graphs) and the cycle is mostly decode; record it and go back to the profile. (6) fails:
+  the accounting is not free and the figures are read with that in mind.
+- **Measured effect:** none yet.
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~
