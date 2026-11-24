@@ -2,7 +2,7 @@
 
 A small LLM inference engine, written from scratch in Python and PyTorch, with a paged KV cache, continuous batching and prefix caching, plus a prefix-cache-aware router for multiple replicas.
 
-**Status: early development.** The engine, server, prefix cache, router and mock backend are built and tested on CPU, but the engine has not been run on a GPU or benchmarked; the only measured numbers are for the Hugging Face baseline. [`docs/STATUS.md`](docs/STATUS.md) says what is built, how it was checked and what is next. Results land in `results/` with the hardware, library versions, git commit and exact command recorded next to every number.
+**Status: working and measured on one GPU, not yet optimised.** The engine, server, prefix cache, router and mock backend are built and tested on CPU. The engine has been run and benchmarked on one RTX 5090 against Hugging Face static batching and vLLM (D-019): in bf16 it delivers about 1.6 times the throughput of a tuned Hugging Face static-batching server, and it is several times slower than vLLM at saturation (vLLM saturates near 60 req/s, the engine near 14; the engine's own ceiling is still being measured). A decode-step profile shows the engine is launch-bound and spends a large part of its saturated time outside the scheduler; speed work is planned and its success criteria are written in advance (D-020). The router has only been exercised on a simulated fleet (mock backend), never on real replicas. [`docs/STATUS.md`](docs/STATUS.md) says what is built, how it was checked and what is next. Results land in `results/` with the hardware and library versions recorded next to every number (the box ran a `git archive`, so the commit is in the decision log, not in each file).
 
 ## Layout
 
@@ -67,8 +67,9 @@ Full blocks are cached by content and shared between requests with a common prom
 that off with `--no-prefix-caching`. The scheduler admits requests while blocks are free and, when
 the pool runs short, preempts the newest running request and recomputes it later. `/info` reports
 batch sizes, preemptions, block use and prefix-cache hits. Greedy decoding and token-id prompts
-only, as in the baseline. Not yet benchmarked, and the attention path is the simple gather-based
-one.
+only, as in the baseline. Benchmarked on one RTX 5090 (D-019). The attention path is the simple
+gather-based one: every step rebuilds contiguous keys and values from the blocks, which a profile
+shows is a large share of the GPU time at larger batches (D-003).
 
 `--backend mock` serves the same API with no model: the real scheduler and block pool, with the
 forward pass replaced by sleeps from a timing model (`--mock-*` options). It exists so the router,

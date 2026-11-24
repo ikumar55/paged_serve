@@ -24,7 +24,9 @@ Usage (on the GPU machine):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import random
 import sys
 import time
 from collections.abc import Sequence
@@ -105,6 +107,24 @@ def compare(
     }
 
 
+def shared_prefix_prompts(
+    count: int, groups: int, prefix_len: int, suffix_len: int, vocab_size: int, seed: int
+) -> list[list[int]]:
+    """Prompts that share long prefixes, so the prefix cache is actually hit.
+
+    ``groups`` random prefixes of ``prefix_len`` tokens; prompt ``i`` is prefix ``i % groups``
+    followed by its own random suffix of ``suffix_len`` tokens. Token ids come from the same range
+    as the random prompts of ``bench.greedy_eval`` (no special or very rare tokens).
+    """
+    rng = random.Random(seed)
+    low, high = min(1000, max(1, vocab_size // 10)), min(100000, vocab_size)
+    prefixes = [[rng.randrange(low, high) for _ in range(prefix_len)] for _ in range(groups)]
+    return [
+        prefixes[i % groups] + [rng.randrange(low, high) for _ in range(suffix_len)]
+        for i in range(count)
+    ]
+
+
 def load_recorded_prompts(path: Path) -> tuple[list[list[int]], dict[str, Any]]:
     """The exact prompts of a recorded ``bench.greedy_eval`` result, checked against its hash.
 
@@ -175,6 +195,15 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-batch", type=int, default=32)
     parser.add_argument(
+        "--shared-prefix-groups",
+        type=int,
+        default=0,
+        help="use synthetic prompts sharing this many long prefixes instead (so the prefix cache "
+        "is hit); see --shared-prefix-len and --shared-prefix-suffix",
+    )
+    parser.add_argument("--shared-prefix-len", type=int, default=1024)
+    parser.add_argument("--shared-prefix-suffix", type=int, default=64)
+    parser.add_argument(
         "--prompts-from",
         type=Path,
         default=None,
@@ -212,8 +241,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     eos = reference_model.generation_config.eos_token_id
     pad_id = int(pad) if pad is not None else int(eos[0] if isinstance(eos, list) else eos or 0)
 
+    if args.prompts_from is not None and args.shared_prefix_groups:
+        raise SystemExit("--prompts-from and --shared-prefix-groups are alternatives")
     if args.prompts_from is not None:
         ids, prompt_meta = load_recorded_prompts(args.prompts_from)
+    elif args.shared_prefix_groups:
+        ids = shared_prefix_prompts(
+            args.prompts,
+            args.shared_prefix_groups,
+            args.shared_prefix_len,
+            args.shared_prefix_suffix,
+            engine.cfg.vocab_size,
+            args.seed,
+        )
+        prompt_meta = {
+            "source": "synthetic shared prefixes",
+            "seed": args.seed,
+            "count": args.prompts,
+            "groups": args.shared_prefix_groups,
+            "prefix_len": args.shared_prefix_len,
+            "suffix_len": args.shared_prefix_suffix,
+            "sha256": hashlib.sha256(json.dumps(ids, separators=(",", ":")).encode()).hexdigest(),
+        }
     else:
         repo_root = Path(__file__).resolve().parents[1]
         prompts = build_prompt_set(
@@ -236,10 +285,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"reference done in {time.perf_counter() - started:.0f}s", file=sys.stderr)
 
     results: dict[str, Any] = {}
+    outputs: dict[str, list[list[int]]] = {}
     with torch.inference_mode():
         for config in configs_for(len(ids), args.tokens, max(len(p) for p in ids), args.max_batch):
             produced, stats = run_scheduler(engine, ids, args.tokens, config, dtype)
+            outputs[config.name] = produced
             comparison = compare(reference, produced)
+            # a fingerprint of the outputs, so two runs can be compared without storing them
+            comparison["outputs_sha256"] = hashlib.sha256(
+                json.dumps(produced, separators=(",", ":")).encode()
+            ).hexdigest()
             for entry in comparison["diverged"]:  # why did it differ? (see logit_gap_record)
                 index, position = entry["prompt"], entry["first_divergence"]
                 if position < min(len(reference[index]), len(produced[index])):
@@ -265,8 +320,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{stats['preemptions']} preemptions",
                 file=sys.stderr,
             )
+    # The prefix cache's own effect on the text: the same scheduler with and without it.
+    cache_effect = compare(outputs["no-prefix-cache"], outputs["served"])
+    print(
+        f"prefix cache on vs off: {cache_effect['identical']}/{cache_effect['prompts']} identical, "
+        f"{results['served']['scheduler']['prefix_hit_tokens']} prompt tokens served from cache",
+        file=sys.stderr,
+    )
     record = {
         "schema_version": SCHEMA_VERSION,
+        "prefix_cache_on_vs_off": cache_effect,
         "meta": {
             "captured_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "label": args.label,

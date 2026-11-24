@@ -12,7 +12,8 @@ audit, and a monitored repeat of part of pass 2 followed. The numbers are in sec
 Not yet done: any speed change (planned and pre-registered as D-020), explaining why the engine
 saturates at 14 req/s when its decode step would allow about 40, and a second GPU class. **A machine in Oxmiq's Capsule fleet still holds
 project files (`~/pagedserve_work`, kept because more runs are plausible); the cleanup duty in
-section 6, item 13 applies. Nothing is pushed.**
+section 6, item 13 applies. The GPU-era commits are local only: the branch is ahead of the remote
+by the commits since `d8eabac`, so CI has not run on any of them.**
 
 ## 1. The project
 
@@ -56,9 +57,11 @@ generator's two timing tests, which fail intermittently on Windows only (one or 
 run; see section 6); they passed on the Linux machines in the log. The new tests add about 40
 seconds on Windows, mostly from starting servers.
 
-## 3. The only real measurements so far
+## 3. Measurements so far
 
-All on an RTX A6000 (workstation GPU, not a datacenter one), Llama-3.2-1B-Instruct, bf16, one run
+The RTX 5090 results are summarised after the A6000 paragraph below; D-019 has the tables.
+
+All of this first paragraph is on an RTX A6000 (workstation GPU, not a datacenter one), Llama-3.2-1B-Instruct, bf16, one run
 per cell unless stated; full method and caveats in D-015:
 
 - **Tuned Hugging Face static-batching baseline:** max batch size 32, batch window 20 ms (batch 64
@@ -71,13 +74,17 @@ per cell unless stated; full method and caveats in D-015:
 **RTX 5090 (2026-11-23, D-019): the three-way comparison**, same model, bf16, standard workload,
 mean of four workload seeds (min to max), delivered throughput in req/s at 16 req/s offered:
 Hugging Face static (batch 64, 20 ms window) **9.0 (8.4 to 9.4)**, this engine (batch 64) **14.4
-(13.5 to 15.1)**, vLLM **15.8 (15.5 to 16.2)**. The engine keeps up to about 12 req/s and is
-overloaded at 16; Hugging Face queues from 4 req/s and saturates near 7 to 9 req/s; vLLM kept up at
-every rate up to 48 req/s and saturates near 60 req/s (8,700 tokens/s): **about 4 times the engine's
-capacity**, which the 16 req/s figure alone hides. The engine's inter-token latency
-(9 to 11 ms in pass 1) is about three times vLLM's (2 to 3 ms); the likely cause (Python launch
-overhead, no CUDA graphs) is a prediction, not profiled. Spread across seeds is 2 to 16%. One GPU, one
-model, one workload shape. Tables: `results/variation-*-rtx5090.md`.
+(13.5 to 15.1)**, vLLM **15.8 (15.5 to 16.2)**. **Read that cell with care:** the metric is
+capped by the arrivals (about 15.95 req/s at 16 offered, for these seeds), so it barely tells the
+engine and vLLM apart; capacity is the saturated rate. The engine keeps up to about 12 req/s and
+is at its edge at 16; Hugging Face queues from 4 req/s and saturates near 7 to 9 req/s; vLLM kept
+up at every rate up to 48 req/s and saturates near 60 req/s (8,700 tokens/s), which is **at least
+4 times what the engine has delivered** (the engine's own saturated throughput is being measured
+at higher offered rates). The engine's inter-token latency is 9 to 11 ms at low load against
+vLLM's 2 to 3 ms, and 22 to 27 ms at 16 req/s; the decode-step profile (D-003) shows the step is
+launch-bound, and an offline run shows the scheduler alone could deliver 2.6 times what the
+server does at saturation. Spread across seeds is 2 to 16%. One GPU, one model, one workload
+shape. Tables: `results/variation-*-rtx5090.md`.
 
 **Prefix cache (shared-prefix workload, 8 x 1024-token prefixes):** the engine's hit rate was 89 to
 92% with the cache on; median time to first token fell 17 to 22% (32 against 41 ms at 4 req/s) and,
@@ -180,14 +187,15 @@ session.
 
 ## 6. Known gaps, risks and gotchas
 
-1. **The engine has now run on CUDA, but only on one GPU and only briefly** (a Capsule RTX 5090, a
-   20 s smoke run and a 50-prompt greedy evaluation; D-019). Still open: how the boolean attention
-   mask in batched decode performs (could fall to a slow kernel; profile before trusting any
-   throughput), the indexed writes into the KV pool at load, bf16 ties (D-010), and
-   `--kv-cache-gb` sizing. Spend the first hour of any GPU session on a smoke test.
-2. **No GPU check of the scheduler against Hugging Face.** `bench/greedy_eval.py` tests the plain
-   engine. In bf16 exact ties make token equality unreliable, so decide how to measure that before
-   asserting it.
+1. **The engine has run and been benchmarked on one GPU only** (a Capsule RTX 5090; D-019). The
+   decode step was profiled (D-003): launch-bound, and the masked attention plus the gather take
+   44 to 56% of GPU time at batch 32 to 64. The `--kv-cache-gb` sizing beyond 8 GB and other GPU
+   classes are untested. Spend the first hour of any GPU session on a smoke test.
+2. **The scheduler path against Hugging Face on a GPU** (`bench/scheduler_eval.py`): fp32 is
+   50 of 50 identical in all three configurations including 35 forced preemptions; in bf16 some
+   prompts diverge, and the logit-gap record (D-019) shows each divergence is a tie within one
+   bf16 step. Prefix-cache **hits** have not yet been compared with an uncached run on real weights
+   (a shared-prefix scheduler evaluation is planned).
 3. **Prefill is not chunked**, so a long prompt delays decode for the others in that step.
 4. **Random-token prompts share no prefixes**: without `--shared-prefix-*` the prefix cache shows a
    hit rate near zero. The shape of a shared-prefix workload is a modelling choice; state it.
@@ -281,10 +289,12 @@ session.
 
 ## 8. Index
 
-- `docs/decisions.md`: D-001 to D-019 (D-018, the rented GPU, is a draft; D-019, the Capsule RTX
-  5090, is in progress), each with decision, reasons, alternatives and measured effect.
-- `docs/gpu-runbook.md`: the GPU session procedure; `deploy/gpu_pass1.sh` and `deploy/gpu_pass2.sh`
-  are the exact scripts that produced the RTX 5090 sweeps.
+- `docs/decisions.md`: D-001 to D-020 (D-018, the rented GPU, is a draft; D-019, the Capsule RTX
+  5090, is in progress; D-020 is a planned experiment), each with decision, reasons, alternatives
+  and measured effect.
+- `docs/gpu-runbook.md`: the GPU session procedure; the `deploy/gpu_*.sh` scripts are the exact
+  scripts that produced the RTX 5090 results (passes 1 to 4, profile, scheduler evaluation,
+  ceiling, numerics).
 - `results/`: write-once benchmark outputs (A6000 and RTX 5090 sweeps, greedy evaluations, the
   variation tables, and `router-compare-mock-*` for the mock-fleet comparison, which is not GPU
   data).

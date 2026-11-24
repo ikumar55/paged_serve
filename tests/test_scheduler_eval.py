@@ -69,6 +69,38 @@ def test_recorded_prompts_that_do_not_match_their_hash_are_refused(tmp_path: Pat
         se.load_recorded_prompts(path)
 
 
+def test_shared_prefix_prompts_share_prefixes_within_a_group_and_differ_in_suffixes() -> None:
+    prompts = se.shared_prefix_prompts(
+        count=7, groups=3, prefix_len=20, suffix_len=5, vocab_size=128256, seed=1
+    )
+    assert len(prompts) == 7 and all(len(p) == 25 for p in prompts)
+    assert prompts[0][:20] == prompts[3][:20] == prompts[6][:20]  # same group
+    assert prompts[0][:20] != prompts[1][:20] != prompts[2][:20]  # different groups
+    assert prompts[0][20:] != prompts[3][20:]  # suffixes are their own
+    assert all(1000 <= token < 100000 for p in prompts for token in p)
+
+
+def test_shared_prefix_prompts_are_deterministic_for_a_seed() -> None:
+    first = se.shared_prefix_prompts(4, 2, 8, 3, 128256, seed=5)
+    assert first == se.shared_prefix_prompts(4, 2, 8, 3, 128256, seed=5)
+    assert first != se.shared_prefix_prompts(4, 2, 8, 3, 128256, seed=6)
+
+
+def test_the_cache_is_actually_hit_by_shared_prefix_prompts_on_a_tiny_model() -> None:
+    model = make_model(CFG)
+    prompts = se.shared_prefix_prompts(
+        count=6, groups=2, prefix_len=40, suffix_len=6, vocab_size=CFG.vocab_size, seed=2
+    )
+    n_tokens = 8
+    with torch.inference_mode():
+        reference = [greedy_generate(model, p, n_tokens) for p in prompts]
+        served, no_cache, _ = se.configs_for(len(prompts), n_tokens, 46, max_batch=3)
+        with_cache, stats = se.run_scheduler(model, prompts, n_tokens, served, torch.float32)
+        without, plain = se.run_scheduler(model, prompts, n_tokens, no_cache, torch.float32)
+    assert stats["prefix_hit_tokens"] > 0 and plain["prefix_hit_tokens"] == 0
+    assert with_cache == without == reference
+
+
 def test_logit_gap_record_reports_the_gap_between_the_two_choices_and_the_top_two() -> None:
     logits = torch.tensor([0.0, 3.0, 2.875, -1.0])
     record = se.logit_gap_record(logits, reference_token=1, scheduler_token=2)

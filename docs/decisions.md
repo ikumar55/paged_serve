@@ -141,8 +141,12 @@ estimates are recorded here as if they were results.
   Reading it. (1) The step is launch-bound: about 920 to 980 kernels per step (57 to 61 per
   layer), each costing 8 to 10 microseconds of wall time, and the GPU sits idle for 52 to 61% of
   the step up to batch 32. The wall time of a step (7.6 to 10.2 ms) matches the inter-token
-  latency measured through the server in pass 1 (9 to 11 ms), so the HTTP layer is not the main
-  cost. This supports the hypothesis above for batch sizes up to 32. If every launch gap were
+  latency measured through the server at low load (9 to 11 ms at 2 to 4 req/s), so the HTTP layer
+  is not the main cost there. **That does not hold at saturation:** at 16 req/s with batch 64 the
+  server's median inter-token latency is 22 to 27 ms, and the scheduler run offline with no
+  server delivers 2.6 times the server's saturated throughput (D-019), so most of the saturated
+  loss is outside the scheduler. This supports the launch-bound hypothesis above for batch sizes
+  up to 32 at low load only. If every launch gap were
   removed (CUDA graphs) the step could not fall below its GPU busy time: **4.8 ms at batch 32, 2.1
   times faster at most**, an upper bound that ignores graph replay cost and the dynamic shapes of
   the gather. (2) It is not only launch overhead. The GPU busy time alone (4.1 ms at batch 8, 4.8
@@ -239,8 +243,11 @@ estimates are recorded here as if they were results.
   version, reported both at defaults and with matching features.
 - **Why:** The first shows the gain over naive serving; the second keeps the comparison honest.
 - **Measured effect:** measured on one RTX 5090 on 2026-11-23: at 16 req/s offered Hugging Face
-  static batching delivered 9.0 req/s, this engine 14.4 and vLLM 15.8 (four seeds each); vLLM was
-  not saturated even at 48 req/s. Table, spread, limits and the machine checks are in D-019.
+  static batching delivered 9.0 req/s, this engine 14.4 and vLLM 15.8 (four seeds each), but that
+  metric is capped by the arrivals at 16 req/s (see D-019), so the capacity comparison is the
+  saturated one: vLLM about 60 req/s, the engine about 14. Only vLLM's defaults were run; the
+  "matching features" configuration this entry promises, and an eager-mode run that would isolate
+  CUDA graphs, are not done. Table, spread, limits and the machine checks are in D-019.
 
 ### D-007 Router policies: round-robin, least-outstanding, approximate and precise prefix-aware
 
@@ -837,8 +844,9 @@ estimates are recorded here as if they were results.
     21 s at batch 64, 33 s at batch 32; throughput 7.6 to 9.0 req/s, with about half of its decode
     slots wasted on finished sequences in pass 1). The engine holds up through 8 req/s (median time
     to first token 37 ms, p99 under 90 ms), is at its edge at 12 req/s (p99 321 ms at batch 64 but
-    509 to 3322 ms at batch 32) and is overloaded at 16 (11.8 to 15.1 req/s delivered, median
-    time to first token 1.6 s at batch 64 and 6.7 s at batch 32). vLLM keeps up at every rate
+    509 to 3322 ms at batch 32) and is at or past its limit at 16 (11.8 to 15.1 req/s delivered;
+    the mean of the median times to first token is 1.6 s at batch 64 and 6.7 s at batch 32, but
+    at batch 64 that is one bad seed of 5.3 s and three of 0.07 to 0.5 s). vLLM keeps up at every rate
     up to 48 req/s (p99 time to first token 214 ms, 98 to 420), and its own ceiling was then
     measured separately (next bullet): about 60 req/s.
   - **vLLM's ceiling (one seed, `results/vllm-rtx5090-ceiling/`, machine audit clean).** With 32
@@ -848,6 +856,14 @@ estimates are recorded here as if they were results.
     to first token 74 ms) and delivered 82.6 at both 96 and 128, but the sweep flagged those runs
     "load generator saturated", so 82.6 is a lower bound on capacity and not a measured ceiling.
     The load generator may also have limited the 32-sequence runs at 96 and 128.
+  - **Why 16 req/s alone misleads (found by the independent review, `REVIEW.md`).** Delivered
+    throughput is the number of completed requests divided by the time from the first send to the
+    last completion. Each run sends a fixed 960 requests whose arrival span differs by seed (58 to
+    61 s), so any server that keeps up reports about 960 divided by that span, a property of the
+    seed. At 16 req/s that bound is 15.95 req/s on average over the four seeds; vLLM sits at 99% of
+    it in every seed, and the engine at 82 to 96% (median time to first token only 71 ms in one
+    seed). So the 16 req/s cell barely tells the engine and vLLM apart, and the engine is at the
+    edge there, not clearly overloaded. Capacity has to be read from a rate above it.
   - **Reading it.** At 16 req/s offered the engine delivers 1.6 times (batch 64) to 1.7 times
     (batch 32) the Hugging Face static throughput, and the ranges do not overlap (13.5 to 15.1
     against 8.4 to 9.4). At that rate vLLM is only 1.10 times the engine, because vLLM is far from
@@ -858,8 +874,9 @@ estimates are recorded here as if they were results.
     attributes about half of the engine's step time to launch overhead, the rest to GPU work that
     a fused attention kernel would reduce.
   - **Noise.** The relative range of delivered throughput across the four seeds is 2 to 8% for the
-    engine and vLLM where they keep up, 8 to 13% for Hugging Face at every rate, and 11 to 16% for
-    any overloaded cell (the earlier A6000 runs spread 10 to 19%). Four runs were flagged contended (GPU busy before the load started) and are left out of
+    engine and vLLM where they keep up, 8 to 16% for Hugging Face (9, 8, 13, 8, 16 and 11% at its
+    six cells), and 11 to 16% for any overloaded cell (the earlier A6000 runs spread 10 to 19%).
+    For vLLM the spread is arrival noise, not system noise (see above). Four runs were flagged contended (GPU busy before the load started) and are left out of
     the spreads: engine seed 1 at 8 req/s (both batch sizes, the same minutes), engine seed 2 at
     16 req/s batch 32, and Hugging Face pass 1 at batch 16, 8 req/s; the cause was not identified.
   - **Shared-prefix workload, prefix cache on and off (pass 3).** Eight shared prefixes of 1024
@@ -877,9 +894,11 @@ estimates are recorded here as if they were results.
     | vLLM, 8 | on / off | 8.08 / 8.07 | 24 (23 to 24) / 34 (33 to 34) | 43 / 60 |
     | vLLM, 16 | on / off | 15.78 / 15.76 | 22 (22 to 23) / 36 (36 to 36) | 42 / 71 |
 
-    Reading it: the cache lowers the median time to first token by 17 to 22% for the engine and by
-    24 to 39% for vLLM, which is 8 to 14 ms in both (a 1.1k-token prefill is short on this GPU, so
-    the absolute saving is small). Where the engine is overloaded (16 req/s) the cache raises
+    Reading it: the cache lowers the median time to first token by 18 to 21% for the engine and by
+    23 to 37% for vLLM (from unrounded values; the rounded milliseconds in the table give a
+    slightly wider range), which is 8 to 14 ms in both (a 1.1k-token prefill is short on this GPU,
+    so the absolute saving is small). These runs measured speed only: no test has yet compared the
+    generated text with prefix-cache hits against an uncached run on real weights. Where the engine is overloaded (16 req/s) the cache raises
     delivered throughput by 11% (the ranges do not overlap, but that cell has two cache-on runs
     because one was flagged contended). vLLM's throughput does not move because it is not
     saturated. Prefix-aware routing's benefit (D-007) is a different question and is unmeasured on
@@ -905,6 +924,47 @@ estimates are recorded here as if they were results.
     26% followed by four zeros, none was inside a monitored window, the cause is unknown, and
     their throughput matches their repeats; a one-sample blip should not by itself decide that a
     run is contended.
+  - **Is the scheduler's text right? (`bench/scheduler_eval.py`, frozen prompts.)** Every speed
+    number above comes through the scheduler (batched, padded, masked attention over a paged
+    cache), and the plain-engine evaluation (50 of 50 identical to Hugging Face in bf16) does not
+    test that path: the plain engine calls the same kernels as Hugging Face. So the same 50
+    prompts as that evaluation (their exact ids, hash-checked) were served through the real
+    scheduler in three configurations (as the server runs it; prefix cache off; a pool of 138
+    blocks that forced 35 preemptions by recompute), 64 greedy tokens, free-running, against
+    Hugging Face `generate` on the same GPU and dtype. **fp32: 50 of 50 identical in all three
+    configurations** (`results/scheduler-eval-rtx5090-fp32-frozen.json`), which rules out a gross
+    bug in the mask, the paging or the recompute. **bf16: 35 of 50 identical as served and with the
+    cache off, 32 of 50 with preemption**, and exactly the same prompts diverge when the run is
+    repeated (`...-bf16-frozen.json`, `...-repeat.json`), so it is deterministic. The 15 diverging
+    prompts were then examined in Hugging Face's own logits at the step where the two first
+    differ: the logit of the reference's token minus the logit of the scheduler's token is exactly
+    0 in 5 cases, one bf16 step (0.125, logits of size 16 to 32) in 9, 0.031 in 1, **never more
+    than 0.125**; in 10 of the 15 Hugging Face's own `generate` picked a token that its own
+    forward pass does not rank first. The diverging prompts are also the tie-rich ones (2.1 exact
+    tie steps per prompt in the plain evaluation, against 0.7 for the others). Reading: in bf16
+    the batched, padded kernels round differently from Hugging Face's, and where two tokens are
+    tied at bf16 resolution that flips the choice; the scheduler is not producing wrong text. This
+    is evidence of rounding, not a proof: a bug that moved logits by less than one bf16 step would
+    look the same. Two earlier bf16 runs (`results/scheduler-eval-rtx5090-bf16.json` 39 of 50 and
+    `...-bf16-gaps.json` 34 of 50) used regenerated prompts, which change when this repository's
+    files change (the prompt generator reads them), so they are different prompt sets and are
+    kept only as the record of how that was found; the frozen runs supersede them.
+  - **fp32 on this card (`results/fp64-truth-rtx5090.txt`).** Against float64 the worst logit
+    error over the 50 prompts is 1.8e-4 for Hugging Face fp32 on the CPU and **1.0e-3 for both
+    Hugging Face and this engine on the GPU** (identical, since they call the same kernels);
+    the medians are equal (2.4e-5 and 2.6e-5). So the GPU's fp32 is about 5.6 times worse than
+    the CPU's in the tail, and 2.4 times worse than the RTX A6000's 4.2e-4 (D-002). The cause is
+    not established (`bench/fp32_probe.py` measures it per operation; see below). The engine
+    matches Hugging Face exactly on the same GPU, which is what the GPU contract tests (D-019).
+  - **Where the saturated time goes (`bench/profile_decode.py --offline-requests`).** The scheduler
+    alone, with no server, 128 requests of 256-token prompts and 128 new tokens, all waiting at
+    the start: 3,243 tokens/s (25.3 req/s) with a maximum batch of 32 and **5,344 tokens/s (41.8
+    req/s) at 64**, spending 67 to 74% of its time in decode and 25 to 32% in admission, which is
+    the one-at-a-time prefills. The best the server has been measured to deliver is about 2,060
+    tokens/s, so the scheduler alone could deliver 2.6 times that; most of the difference is
+    outside the scheduler (the server thread and the event loop, D-021), but the server's own
+    ceiling was not measured at the time (16 req/s offered is arrival-capped), so pass 5
+    measures it at 32 req/s before the split is concluded.
   - **Limits.** One consumer GPU, one model, one workload shape, bf16 only; one shared-prefix
     setting; the Hugging Face best setting is at the edge of its grid
     (batch 64 is about the memory limit); the box's code was a `git archive` of commit b101006, so
@@ -921,17 +981,66 @@ estimates are recorded here as if they were results.
 - **Design constraints:** an opt-in `--cuda-graphs` server flag; the default path is unchanged, so
   every recorded result stays reproducible from its commit. Static input buffers; padding rows must
   write only to a scratch block so they cannot corrupt a live sequence; buckets chosen up front.
-- **Success criteria (fixed now):** (a) *correctness gates, all required:* `bench.scheduler_eval`
-  identical counts no worse than the default path in all three configurations, the unchanged
-  greedy evaluation, and the CPU test suite passing; (b) *step time:* `bench.profile_decode` median
-  wall time at batch 32 at most 7.0 ms (at least 30% below the 9.94 ms baseline); (c) *end to end:*
-  the engine's delivered throughput at 16 req/s, mean of four seeds, at least 16.5 req/s (15% above
-  14.4) with the lowest seed above the baseline's highest (15.1), on a machine the monitor and
-  audit report clean.
+- **Amendment, 2026-11-24, before any implementation (from the independent review).** The first
+  version of this entry required, as its end-to-end criterion, a mean delivered throughput at 16
+  req/s of at least 16.5 req/s. That was unreachable: delivered throughput is capped by the
+  arrivals, which average 15.95 req/s at 16 offered for the four seeds (D-019), so even an
+  infinitely fast engine fails it. It also compared against a stored number from another session
+  and ignored prefill and the server path. The criteria below replace it; nothing had been built.
+- **Success criteria (fixed now, version 2).** Every comparison is baseline (the default path)
+  against `--cuda-graphs`, **interleaved by seed within one session**, with the machine monitor
+  running and the audit clean; the baseline is re-measured then, never taken from an earlier day.
+  (a) *Correctness gates, all required:* (i) `bench.scheduler_eval` in fp32 on the frozen prompts of
+  the recorded greedy evaluation, 50 of 50 identical to Hugging Face in all three configurations;
+  (ii) the same in bf16 with every divergence within one bf16 logit step (0.125) in Hugging Face's
+  own logits, as the logit-gap record shows for the default path (D-019); (iii) a shared-prefix
+  scheduler evaluation in which the cache is hit, fp32, 50 of 50; (iv) eager and graph logits
+  bit-equal on identical inputs in fp32, and the real rows' logits unchanged when padding rows are
+  added; (v) a server run with zero failed requests and the CPU test suite passing.
+  (b) *Step time (diagnostic):* `bench.profile_decode` median wall time at batch 32, at least 30%
+  below the baseline measured in the same session. (c) *End to end (the claim):* the engine's
+  delivered throughput at **32 req/s offered**, above the engine's capacity, batch 64, four seeds,
+  as the paired per-seed ratio graphs over baseline: mean at least 1.25 and every seed at least
+  1.10. (Expected before implementing: the offline scheduler spends 67 to 74% of its time in
+  decode and delivers 2.6 times what the server does at saturation (D-019), so halving the decode
+  step can raise the server's saturated throughput by anywhere from 0 to about 50%; 25% is inside
+  that range and is not a foregone conclusion.)
+- **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
+  saturation, the server path and prefill are (see D-021), which is a result. (b) fails: graphs
+  do not remove the launch overhead in this design. (a) fails: revert. All pass: record the gain
+  and the new profile. A positive result would bundle graphs with static buffers and a changed
+  gather, so it is reported as that bundle, not as the effect of graphs alone. As a control, vLLM
+  is also run with `--enforce-eager` to bound what graphs can be worth on this stack.
 - **Stopping rule:** time-boxed to about a day and three GPU sessions. If (a) fails, revert and
   record why. If (a) holds but (b) or (c) does not, record it as a negative or partial result with
   the new profile; do not adjust the criteria afterwards. A fused paged-attention kernel and
   chunked prefill (D-003's stretch goals) are not part of this experiment.
+- **Measured effect:** none yet.
+
+### D-021 Where the server loses capacity: attribute it before changing anything (PLANNED, predictions fixed in advance)
+
+- **Status:** planned 2026-11-24. The only code change is accounting: the engine thread now counts
+  the seconds it spends in `scheduler.step()`, routing tokens to the HTTP side, taking requests
+  from the inbox, and idle, reported in `/info` as `engine_thread_seconds` (the load generator
+  records `/info` at the start and the end of every run). Server behaviour is unchanged.
+- **Question:** the scheduler run offline delivers 5,344 tokens/s at batch 64 (D-019); the best
+  the server has been measured to deliver is about 2,060. Where does the difference go: the engine
+  thread running slower inside the server (it shares Python's global interpreter lock with the
+  HTTP event loop, which also handles every streamed token), time spent routing tokens (one
+  cross-thread call per token), the engine thread starved of work, or a difference in how
+  arrivals fill the batch?
+- **Predictions, written before the saturation data (pass 5, 32 req/s offered):** (1) the engine
+  thread is almost never idle at saturation; (2) `step` is at least 70% of the thread's time and
+  `route` under 10%; (3) the mean time of one scheduler step inside the server is at least 30%
+  above the offline figure (about 10 ms decode plus admission per step), which would indicate
+  contention for the interpreter lock.
+- **Interpretation, fixed now:** if (1) fails, the engine is starved and the cause is upstream
+  (arrival handling), not the scheduler. If `route` is 10% or more, batch the pushes to one per
+  step. If the step time is at least 30% above offline, the candidate fixes are a shorter switch
+  interval, one push per step, or moving the scheduler into its own process; each is a separate
+  opt-in experiment with its own criteria written before it is run. If the step time matches
+  offline and the thread is busy, the server is not the loss and the offline workload (fixed
+  lengths, all requests waiting) is not representative; that would be reported as such.
 - **Measured effect:** none yet.
 
 ## Open verification items

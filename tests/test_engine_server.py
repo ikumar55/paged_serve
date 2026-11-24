@@ -198,6 +198,19 @@ def test_info_reports_the_server_and_scheduler_state() -> None:
     assert info["stats"]["blocks_total"] == 200 and info["stats"]["blocks_used"] == 0
 
 
+def test_info_accounts_for_the_engine_threads_time() -> None:
+    """D-021: how much of the engine thread's time is the step, routing, the inbox, or idling."""
+    app, _ = make_app(max_batch_size=3)
+    with UvicornServer(app) as url, httpx.Client(base_url=url) as client:
+        before = client.get("/info").json()["stats"]["engine_thread_seconds"]
+        client.post("/v1/completions", json={"prompt": [1, 2, 3], "max_tokens": 8})
+        after = client.get("/info").json()["stats"]["engine_thread_seconds"]
+    assert set(after) == {"step", "route", "inbox", "idle"}
+    assert after["step"] > before["step"] and after["route"] > before["route"]
+    assert all(value >= 0 for value in after.values())
+    assert after["idle"] >= before["idle"]
+
+
 def test_end_to_end_with_the_load_generator(tmp_path: Path) -> None:
     """The same load generator that drives the Hugging Face baseline drives this engine."""
     app, _ = make_app(max_batch_size=4)

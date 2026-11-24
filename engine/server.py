@@ -77,6 +77,11 @@ class EngineRunner:
         self.error: str | None = None
         self.tokens_generated = 0
         self.requests_finished = 0
+        # Where the engine thread's time goes, in seconds (D-021): in ``scheduler.step()``,
+        # routing its tokens to the HTTP side, taking new requests from the inbox, or waiting with
+        # nothing to do. Written only by the engine thread; read (racily, which is fine for a
+        # counter) by /info.
+        self.thread_seconds = {"step": 0.0, "route": 0.0, "inbox": 0.0, "idle": 0.0}
 
     def start(self) -> None:
         self._thread.start()
@@ -100,10 +105,19 @@ class EngineRunner:
 
     def _loop(self) -> None:
         try:
+            spent = self.thread_seconds
             while not self._stop.is_set():
-                self._drain_inbox(block=not self.scheduler.has_work)
+                idle = not self.scheduler.has_work
+                started = time.perf_counter()
+                self._drain_inbox(block=idle)
+                stepping = time.perf_counter()
+                spent["idle" if idle else "inbox"] += stepping - started
                 if self.scheduler.has_work:
-                    self._route(self.scheduler.step())
+                    result = self.scheduler.step()
+                    stepped = time.perf_counter()
+                    self._route(result)
+                    spent["step"] += stepped - stepping
+                    spent["route"] += time.perf_counter() - stepped
         except Exception as error:  # a broken engine must not leave clients hanging
             self.error = f"{type(error).__name__}: {error}"
             for stream in self._streams.values():
@@ -263,6 +277,7 @@ def create_app(
             **scheduler.stats(),
             "tokens_generated": runner.tokens_generated,
             "requests_finished": runner.requests_finished,
+            "engine_thread_seconds": dict(runner.thread_seconds),
         }
         return {**static_info, "stats": stats}
 

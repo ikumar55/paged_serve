@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Prepare a fresh rented Linux GPU machine for pagedserve measurements.
 #
-# UNTESTED until it has been run on a real instance. Read it before running it; it is short.
+# Run successfully once, on an Oxmiq Capsule RTX 5090 machine on 2026-11-23 (with
+# ALLOW_OLDER_DRIVER=1, because that fleet's drivers advertise CUDA 13.0); never on a rented
+# instance. Read it before running it; it is short.
 #
 # What it does, in order, stopping at the first failure:
 #   1. records the GPU, driver and OS and refuses to continue if there is no usable NVIDIA GPU;
