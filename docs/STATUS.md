@@ -295,6 +295,9 @@ session.
 - `docs/decisions.md`: D-001 to D-020 (D-018, the rented GPU, is a draft; D-019, the Capsule RTX
   5090, is in progress; D-020 is a planned experiment), each with decision, reasons, alternatives
   and measured effect.
+- `docs/independent-review-2026-11-24.md`: an independent, sceptical review of the claims against the
+  raw data (unedited), with a status table of what has been done about each finding (a living
+  document: update the table as findings are resolved).
 - `docs/gpu-runbook.md`: the GPU session procedure; the `deploy/gpu_*.sh` scripts are the exact
   scripts that produced the RTX 5090 results (passes 1 to 4, profile, scheduler evaluation,
   ceiling, numerics).
