@@ -1528,6 +1528,58 @@ estimates are recorded here as if they were results.
   gate by one divergence (0.1875 against 0.125)**, also after the one allowed fix; so by the
   pre-stated rule nothing is claimed and speed was not measured. See the build log above.
 
+### D-026 Is the kernel's bf16 accuracy as good as the gather path's? (PLANNED, criteria fixed before any run; they are POST-HOC)
+
+- **Status:** planned 2026-11-24; **nothing is built or run yet.** Follows from D-025: the kernel
+  is correct in fp32 and 1.55 times faster at saturation in a diagnostic run, but it missed
+  D-025's fixed bf16 gate by one near-tie (0.1875 against 0.125), and the single rounding fix
+  allowed there did not remove it. **These criteria are written after seeing the D-025 results;
+  they are a post-hoc choice and are labelled so. They do not change D-025's recorded outcome
+  (its literal bf16 gate stays failed).**
+- **Why D-025's gate was the wrong instrument:** it counts where the engine's bf16 text first
+  differs from Hugging Face's own bf16 text, with Hugging Face's bf16 logits as the yardstick. Both
+  are bf16 computations with their own rounding noise, so a flip at a near-tie says that two noisy
+  computations disagreed, not which one is closer to the right answer. The better instrument
+  measures each bf16 path against an fp32 reference (the engine's own fp32 path, which is 50 of
+  50 identical to Hugging Face on every prompt set, so it is the truth here), position by
+  position, on identical inputs.
+- **Hypothesis:** the kernel is not less accurate than the gather path in bf16, measured against
+  fp32. (The attention-level test already says so: its error is equal to the gather path's in
+  bf16.) If the near-tie flips in D-025 were a property of the kernel's rounding being worse, the
+  model-level error against fp32 would show it.
+- **Design.** A new tool, `bench.bf16_logit_error`, runs four variants in lockstep on the same
+  prompts and the same forced tokens (the fp32 gather path's own greedy tokens, so every variant
+  sees the same context at every step): *truth* (fp32, gather path), *fp32-kernel* (fp32, Triton
+  kernel), *bf16-gather* and *bf16-kernel* (the bf16 model, gather path and Triton kernel).
+  Every prompt is prefilled, then 63 batched decode steps (the steps where the kernel is used)
+  are run; at every position and for each non-truth variant it records the maximum absolute
+  logit error against truth, whether its argmax differs from truth's ("a flip") and truth's
+  top-1 minus top-2 margin. Prompts: the 50 frozen prompts of the recorded greedy evaluation plus
+  the shared-prefix prompts of D-025 (8 groups, 1024-token prefix, 64-token suffix) for seeds 0, 1
+  and 2: 200 prompts, about 12,600 positions per variant. One GPU session, the machine monitor
+  on, the determinism self-test first. The tool is written with CPU tests first (a tiny model, the
+  float64 reference as the in-place function, a deliberately broken attention must be detected).
+- **Success criteria (all required, fixed now), kernel against gather on the same positions:**
+  (i) bf16 mean of the per-position maximum absolute logit error: kernel at most 1.10 times
+  the gather path's; (ii) its 99th percentile: kernel at most 1.25 times the gather path's;
+  (iii) flips whose truth margin is at least 0.125 (not near-ties): kernel count at most 1.25
+  times the gather path's plus 2; (iv) fp32 sanity: fp32-kernel flips against truth: 0, and its
+  mean error at most 2 times the gather path's own fp32-against-fp32 (that is, truth against
+  itself is zero by construction, so the check is that fp32-kernel's mean error is below 1e-4,
+  the size of fp32 noise on this model, D-019).
+- **Prediction, written now:** (i) ratio about 1.0 (0.9 to 1.1), (ii) about 1.0, (iii) the counts
+  are equal within a few, (iv) holds. I expect the near-tie of D-025 (prompt 10, token 3 of the
+  shared-prefix set) to show up as a flip of the kernel and not of the gather path in the
+  tie bin (margin under 0.125 against fp32), if fp32 sides with Hugging Face's bf16.
+- **Interpretation, fixed now:** all four hold: the kernel is as accurate as the gather path in
+  bf16 against fp32, by this post-hoc standard; D-025's literal gate remains recorded as failed;
+  the speed figures of the D-025 diagnostic may then be quoted **together with both facts** (the
+  D-025 gate was missed by one near-tie; the D-026 standard is met, and was chosen after the
+  fact). Any of (i) to (iii) fails: the kernel is measurably less accurate in bf16 than the
+  gather path, nothing about speed is claimed, and the finding (which positions, which bin) is
+  recorded. (iv) fails: a bug; stop.
+- **Time box:** this session. **Measured effect:** none yet.
+
 ## Open verification items
 
 - ~~Confirm the `LlamaConfig.llama_3_2_1b()` hyperparameters against the real `config.json`.~~
