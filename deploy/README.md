@@ -1,9 +1,10 @@
 # Deploying pagedserve: Docker and Kubernetes
 
-**Status (2026-11-24): the three images build, and the mock stack runs on Docker Desktop (WSL 2) on
-a Windows laptop; the Kubernetes manifests and the GPU path have never been applied or run.** What
-has been verified, and what has not, is spelled out at the end. Treat the first `kubectl apply` and the
-first GPU run as the first real tests, and send what breaks back into this document.
+**Status (2026-11-24): the three images build; the mock stack runs on Docker Desktop (WSL 2) and, through
+the `mock` overlay, on a real local Kubernetes cluster (`kind`) on a Windows laptop. The GPU path has
+never been run: no GPU was available.** What has been verified, and what has not, is spelled out at the
+end. Treat the first GPU run as the first real test of that part, and send what breaks back into this
+document.
 
 | Path | What it is |
 | --- | --- |
@@ -13,7 +14,8 @@ first GPU run as the first real tests, and send what breaks back into this docum
 | `docker/compose.mock.yaml` | a whole stack on one machine with no GPU and no weights (mock backend) |
 | `k8s/base/` | namespace, models volume claim, engine StatefulSet and headless Service, router Deployment and Service |
 | `k8s/overlays/kernel-graphs/` | the engine with the opt-in Triton kernel and CUDA graphs |
-| `k8s/overlays/mock/` | the stack on a cluster with no GPU and no weights (mock backend) |
+| `k8s/overlays/mock/` | the stack on a cluster with no GPU and no weights (mock backend, CPU build of the engine image) |
+| `k8s/overlays/single-gpu/` | one engine replica and a router that knows only that one, for a machine with a single GPU |
 | `validate.sh`, `validate.ps1` | the offline checks (below) |
 | `setup_gpu_box.sh`, `capsule/`, `gpu_*.sh` | the earlier, non-container way the benchmarks were run (a shared GPU machine) |
 
@@ -67,19 +69,26 @@ docker run --rm --gpus all -p 8000:8000 -v /path/to/models:/models:ro pagedserve
 
 ## 3. Kubernetes
 
-Without a GPU (a local `kind` or `minikube` cluster is enough):
+Without a GPU, on a local `kind` cluster (this is what was tested). The mock overlay uses the CPU
+build of the engine image (about 1.8 GB instead of 9 GB):
 
 ```bash
+docker build --build-arg TORCH_CUDA_INDEX=cpu -f deploy/docker/Dockerfile.engine -t pagedserve-engine:0.1.0-cpu .
+docker build -f deploy/docker/Dockerfile.router -t pagedserve-router:0.1.0 .
+kind create cluster --name pagedserve
+kind load docker-image pagedserve-engine:0.1.0-cpu pagedserve-router:0.1.0 --name pagedserve
 kubectl apply -k deploy/k8s/overlays/mock
 kubectl -n pagedserve rollout status statefulset/engine deployment/router
 kubectl -n pagedserve port-forward svc/router 9000:80 &
-curl http://localhost:9000/info
+curl "http://localhost:9000/info?fleet=true"
+kind delete cluster --name pagedserve        # when done
 ```
 
-On a GPU cluster:
+On a GPU cluster (`overlays/single-gpu` for a machine with one GPU: it runs one engine replica,
+because a second pod asking for its own GPU would stay Pending, and the router lists only that one):
 
 ```bash
-kubectl apply -k deploy/k8s/base               # or overlays/kernel-graphs
+kubectl apply -k deploy/k8s/base               # or overlays/single-gpu, overlays/kernel-graphs
 # put the weights on the volume: a throwaway pod that mounts the claim, then copy the files in
 kubectl -n pagedserve run models-loader --image=busybox --restart=Never \
     --overrides='{"spec":{"containers":[{"name":"l","image":"busybox","command":["sleep","3600"],"volumeMounts":[{"name":"m","mountPath":"/models"}]}],"volumes":[{"name":"m","persistentVolumeClaim":{"claimName":"pagedserve-models"}}]}}'
@@ -118,8 +127,20 @@ Verified offline (2026-11-24): the Dockerfiles pass hadolint; the three kustomiz
 validate against the Kubernetes 1.34 schemas; the argument lists parse; names, ports, routes and tags
 agree; the overlays do what they claim.
 
-**Verified by running it (2026-11-24, Docker Desktop 4.100 with WSL 2, Docker 29.9, a Windows laptop
-with no GPU):** all three images build from the Dockerfiles on the first attempt (the engine image in
+**Verified by running it on a real Kubernetes cluster (2026-11-24, `kind` 0.33, Kubernetes 1.37, on
+the same laptop, mock overlay):** `kubectl apply -k deploy/k8s/overlays/mock` brought up `engine-0`,
+`engine-1` and the router, all Ready, on the first apply; the router found both replicas through the
+StatefulSet's DNS names (`engine-0.engine:8000`) and a request through the Service returned tokens; the
+load generator container ran 160 requests through the router, 160 of 160 succeeded and both replicas
+served; the pod security settings are really in force (user 10001, a write to `/` refused with "Read-only
+file system", `/tmp` writable); deleting `engine-0` during traffic caused no failed request (45 of 45), one
+router failover, and the StatefulSet recreated the pod with the same name; and applying the
+`single-gpu` overlay on this GPU-less cluster leaves `engine-0` Pending with `Insufficient
+nvidia.com/gpu` (and `Insufficient memory`, because the base asks for 8 GiB and the laptop's Docker VM has
+less), which shows the GPU and memory requests are enforced by the scheduler.
+
+**Verified by running it with Docker (2026-11-24, Docker Desktop 4.100 with WSL 2, Docker 29.9, a Windows
+laptop with no GPU):** all three images build from the Dockerfiles on the first attempt (the engine image in
 about 4 minutes, mostly the PyTorch download); `docker compose -f deploy/docker/compose.mock.yaml up`
 starts two mock engine replicas and the router, all three report healthy through the images' own
 `HEALTHCHECK`s within seconds; the router lists both replicas healthy and a request through it returns
@@ -128,11 +149,10 @@ result file; stopping one engine container leaves requests succeeding (8 of 8, o
 other replica takes the load) and the router takes the replica back after it restarts. Run as the
 non-root user 10001 throughout.
 
-**Not verified: that the GPU is visible inside the container; that Triton can compile its kernel
-there; that any Kubernetes manifest applies, that the probes, the read-only root file system and
-pod scheduling work on a cluster (the mock overlay can be tried on a local `kind` cluster, which
-has not been done yet); that the weights volume mounts and is readable by user 10001.** If a first
-start fails, try these in this order:
+**Not verified: that the GPU is visible inside a container; that Triton can compile its kernel
+there; that the base and `kernel-graphs` overlays (which need a GPU and the weights) start on a GPU
+cluster; that the weights volume mounts and is readable by user 10001; scheduling of two GPU replicas
+onto two GPUs.** If a first GPU start fails, try these in this order:
 1. `readOnlyRootFilesystem` (set it to `false` in `k8s/base/*.yaml` to see whether a library wants to
    write somewhere other than `/tmp` and `/home/app/.triton`);
 2. the Triton compile (it needs `gcc`, installed in the engine image) and the driver against the
@@ -140,3 +160,12 @@ start fails, try these in this order:
 3. the weights volume (path `/models/Llama-3.2-1B-Instruct`, mounted read-only, readable by uid 10001);
 4. the startup probe budget (10 minutes: weights load, kernel compile and graph capture happen
    before the server answers).
+
+## Known behavior found while testing
+
+- **The router's `/health` is optimistic.** A replica counts as healthy until a *request* to it fails
+  (then it rests for the cooldown); the background poll of `/cache` does not mark a replica down. So with
+  the only replica missing, the router's `/health` still returns 200 and Kubernetes marks it Ready, and the
+  first request returns 503 (found on `kind` with the `single-gpu` overlay while the engine pod was
+  Pending). Consequence: the router's readiness probe does not prove there is a working backend. A fix
+  is on the roadmap (item 12): make `/health` verify that at least one replica answers, with a test.

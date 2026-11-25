@@ -87,13 +87,18 @@ def overlay_patches(name: str) -> list[dict[str, Any]]:
     return list(kustomization["patches"])
 
 
-def patched_engine(overlay: str) -> dict[str, Any]:
-    statefulset = base_docs()["StatefulSet/engine"]
+def patched(overlay: str, kind: str, name: str) -> dict[str, Any]:
+    """The base document ``kind/name`` with the overlay's JSON patches for it applied."""
+    document = base_docs()[f"{kind}/{name}"]
     for patch in overlay_patches(overlay):
         target = patch.get("target")
-        if target and target.get("kind") == "StatefulSet" and target.get("name") == "engine":
-            statefulset = apply_json_patch(statefulset, yaml.safe_load(patch["patch"]))
-    return statefulset
+        if target and target.get("kind") == kind and target.get("name") == name:
+            document = apply_json_patch(document, yaml.safe_load(patch["patch"]))
+    return document
+
+
+def patched_engine(overlay: str) -> dict[str, Any]:
+    return patched(overlay, "StatefulSet", "engine")
 
 
 def test_the_json_patch_applier_does_what_it_says() -> None:
@@ -234,7 +239,7 @@ def test_the_kernel_overlay_keeps_the_gpu_and_only_adds_the_two_flags() -> None:
 
 
 def test_every_overlay_points_at_the_base() -> None:
-    for name in ("mock", "kernel-graphs"):
+    for name in ("mock", "kernel-graphs", "single-gpu"):
         kustomization = yaml.safe_load((K8S / "overlays" / name / "kustomization.yaml").read_text())
         assert kustomization["resources"] == ["../../base"]
     base = yaml.safe_load((K8S / "base" / "kustomization.yaml").read_text())
@@ -372,3 +377,32 @@ def test_compose_commands_parse_and_the_router_names_the_engine_services() -> No
             services[service]["build"]["dockerfile"]
             == f"deploy/docker/Dockerfile.{dockerfile_name}"
         )
+
+
+def test_the_single_gpu_overlay_has_one_replica_and_the_router_agrees() -> None:
+    statefulset = patched("single-gpu", "StatefulSet", "engine")
+    router = patched("single-gpu", "Deployment", "router")
+    assert statefulset["spec"]["replicas"] == 1
+    engine_args = parse_engine(engine_container(statefulset)["args"])
+    router_args = parse_router(router["spec"]["template"]["spec"]["containers"][0]["args"])
+    assert router_args.replica == [f"http://engine-0.engine:{engine_args.port}"]
+    # everything else about the router is as in the base
+    base_router = parse_router(
+        base_docs()["Deployment/router"]["spec"]["template"]["spec"]["containers"][0]["args"]
+    )
+    assert (router_args.policy, router_args.load_cap, router_args.port) == (
+        base_router.policy,
+        base_router.load_cap,
+        base_router.port,
+    )
+    # and it still asks for exactly one GPU, as the base does
+    assert engine_container(statefulset)["resources"]["limits"]["nvidia.com/gpu"] == 1
+
+
+def test_the_mock_overlay_uses_the_cpu_build_of_the_engine_image() -> None:
+    kustomization = yaml.safe_load((K8S / "overlays" / "mock" / "kustomization.yaml").read_text())
+    tags = {i["name"]: i["newTag"] for i in kustomization["images"]}
+    assert tags == {"pagedserve-engine": f"{IMAGE_TAG}-cpu"}
+    # the Dockerfile really offers that build: the index is an argument that can be set to "cpu"
+    assert "ARG TORCH_CUDA_INDEX=cu132" in dockerfile("engine")
+    assert 'whl/${TORCH_CUDA_INDEX}"' in dockerfile("engine")

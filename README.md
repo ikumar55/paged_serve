@@ -115,4 +115,4 @@ Design decisions, with the measured effect of each change, are tracked in [`docs
 
 ## Deploying
 
-Dockerfiles, a compose file for a no-GPU demo stack and Kubernetes manifests (base plus two overlays) are in [`deploy/`](deploy/README.md). They have been validated offline (hadolint, kubeconform, and tests that parse every argument list with the servers' real parsers) but **never built or applied**: no Docker host or cluster was available. `deploy/README.md` says what is verified and what to try first if something breaks.
+Dockerfiles, a compose file for a no-GPU demo stack and Kubernetes manifests (base plus two overlays) are in [`deploy/`](deploy/README.md). They have been validated offline (hadolint, kubeconform, and tests that parse every argument list with the servers' real parsers) and run: the images build, the mock stack runs under Docker Compose, and the `mock` overlay runs on a local `kind` cluster (service discovery, probes, security settings, self-healing and the GPU scheduling behavior were checked). The GPU path has never been run, because no GPU was available for it. `deploy/README.md` says what is verified and what to try first on a GPU machine.

@@ -10,6 +10,12 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
+# The mock backend needs no GPU, so use the CPU-only build of the engine image (a few hundred
+# megabytes instead of 9 GB): docker build --build-arg TORCH_CUDA_INDEX=cpu -t pagedserve-engine:0.1.0-cpu ...
+images:
+  - name: pagedserve-engine
+    newName: pagedserve-engine
+    newTag: 0.1.0-cpu
 patches:
   # No weights volume is needed.
   - patch: |-

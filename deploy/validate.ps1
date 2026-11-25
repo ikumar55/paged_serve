@@ -32,7 +32,7 @@ if ($hadolint) {
 "`n== kubectl kustomize + kubeconform (Kubernetes $KubeVersion schemas)"
 $kubectl = Find-Tool "kubectl"; $kubeconform = Find-Tool "kubeconform"
 if ($kubectl -and $kubeconform) {
-    foreach ($dir in "deploy/k8s/base", "deploy/k8s/overlays/mock", "deploy/k8s/overlays/kernel-graphs") {
+    foreach ($dir in "deploy/k8s/base", "deploy/k8s/overlays/mock", "deploy/k8s/overlays/kernel-graphs", "deploy/k8s/overlays/single-gpu") {
         Write-Host -NoNewline "${dir}: "
         & $kubectl kustomize $dir | & $kubeconform -strict -summary -kubernetes-version $KubeVersion -
         if ($LASTEXITCODE -ne 0) { $status = 1 }

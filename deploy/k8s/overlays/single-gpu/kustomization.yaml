@@ -1,0 +1,35 @@
+# One engine replica, for a cluster (or a machine) with a single GPU. The base asks for two replicas
+# with one GPU each; on one GPU the second pod would stay Pending forever, so this overlay sets one
+# replica and removes the second replica from the router's list (a test checks that the router's
+# replicas still match the StatefulSet).
+#
+# With one replica the router has nothing to choose between: it is just a proxy that adds health
+# checking. Prefix-aware routing needs at least two replicas, on two GPUs for a real scale-out
+# (the router experiment D-022 is planned with replicas as processes on one GPU, not through this).
+#
+#   kubectl apply -k deploy/k8s/overlays/single-gpu
+#
+# Combine with the speed paths by listing both overlays' patches in your own kustomization.
+#
+# STATUS: written 2026-11-24; validated offline only; NEVER APPLIED to a GPU cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: StatefulSet
+      name: engine
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: router
+    patch: |-
+      # args are: --replica URL0 --replica URL1 --policy ...; drop the second pair
+      - op: remove
+        path: /spec/template/spec/containers/0/args/3
+      - op: remove
+        path: /spec/template/spec/containers/0/args/2

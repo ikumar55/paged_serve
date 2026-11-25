@@ -29,7 +29,8 @@ fi
 
 step "kubectl kustomize + kubeconform (Kubernetes $KUBE_VERSION schemas)"
 if have kubectl && have kubeconform; then
-  for dir in deploy/k8s/base deploy/k8s/overlays/mock deploy/k8s/overlays/kernel-graphs; do
+  for dir in deploy/k8s/base deploy/k8s/overlays/mock deploy/k8s/overlays/kernel-graphs \
+             deploy/k8s/overlays/single-gpu; do
     printf '%s: ' "$dir"
     kubectl kustomize "$dir" | kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" - || status=1
   done
