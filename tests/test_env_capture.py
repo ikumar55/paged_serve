@@ -6,6 +6,7 @@ import pytest
 
 from bench.env_capture import (
     capture_environment,
+    git_info,
     main,
     output_filename,
     parse_nvcc_release,
@@ -56,16 +57,16 @@ def test_capture_with_gpu_tools() -> None:
     env = capture_environment(run=fake_run, args=["--out", "results"])
     assert len(env["gpus"]) == 2
     assert env["nvcc_release"] == "12.4"
-    assert env["git"] == {"commit": FAKE_COMMIT, "dirty": False}
+    assert env["git"] == {"commit": FAKE_COMMIT, "dirty": False, "source": "git"}
     assert env["command"] == "python -m bench.env_capture --out results"
     json.dumps(env)  # must be serializable
 
 
-def test_capture_without_any_tools_degrades_gracefully() -> None:
-    env = capture_environment(run=nothing_available)
+def test_capture_without_any_tools_degrades_gracefully(tmp_path: Path) -> None:
+    env = capture_environment(run=nothing_available, root=tmp_path, environ={})
     assert env["gpus"] == []
     assert env["nvcc_release"] is None
-    assert env["git"] == {"commit": None, "dirty": None}
+    assert env["git"] == {"commit": None, "dirty": None, "source": None}
 
 
 def test_command_does_not_reveal_the_home_directory(
@@ -103,3 +104,56 @@ def test_main_writes_file(tmp_path: Path, capsys: object) -> None:
     data = json.loads(written[0].read_text())
     assert "packages" in data
     assert data["command"] == redact_home(f"python -m bench.env_capture --out {out}")
+
+
+# -- which code produced a result, when git cannot say (a shipped archive, a Docker image) ------
+
+OTHER_COMMIT = "fedcba9876543210fedcba9876543210fedcba98"
+
+
+def test_git_answers_first_and_says_so(tmp_path: Path) -> None:
+    (tmp_path / "COMMIT").write_text(OTHER_COMMIT)  # present but not used: git is asked first
+    info = git_info(fake_run, tmp_path, {"PAGEDSERVE_COMMIT": OTHER_COMMIT})
+    assert info == {"commit": FAKE_COMMIT, "dirty": False, "source": "git"}
+
+
+def test_the_environment_variable_answers_when_git_cannot(tmp_path: Path) -> None:
+    (tmp_path / "COMMIT").write_text(FAKE_COMMIT)
+    info = git_info(
+        nothing_available, tmp_path, {"PAGEDSERVE_COMMIT": " " + OTHER_COMMIT.upper() + "\n"}
+    )
+    assert info == {"commit": OTHER_COMMIT, "dirty": None, "source": "env"}  # trimmed, lower case
+
+
+def test_the_commit_file_answers_when_neither_git_nor_the_variable_can(tmp_path: Path) -> None:
+    (tmp_path / "COMMIT").write_text(FAKE_COMMIT + "\n")
+    info = git_info(nothing_available, tmp_path, {})
+    assert info == {"commit": FAKE_COMMIT, "dirty": None, "source": "file"}
+
+
+@pytest.mark.parametrize(
+    "junk", ["unknown", "", "abc123", FAKE_COMMIT[:39], FAKE_COMMIT + "0", "g" * 40]
+)
+def test_only_a_full_hexadecimal_commit_counts(tmp_path: Path, junk: str) -> None:
+    (tmp_path / "COMMIT").write_text(junk)
+    assert git_info(nothing_available, tmp_path, {"PAGEDSERVE_COMMIT": junk})["source"] is None
+
+
+def test_a_missing_commit_file_is_not_an_error(tmp_path: Path) -> None:
+    assert git_info(nothing_available, tmp_path / "does-not-exist", {}) == {
+        "commit": None,
+        "dirty": None,
+        "source": None,
+    }
+
+
+def test_the_real_environment_and_the_shipped_commit_file_reach_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PAGEDSERVE_COMMIT", OTHER_COMMIT)
+    assert capture_environment(run=nothing_available, root=tmp_path)["git"]["source"] == "env"
+    monkeypatch.delenv("PAGEDSERVE_COMMIT")
+    (tmp_path / "COMMIT").write_text(FAKE_COMMIT)
+    env = capture_environment(run=nothing_available, root=tmp_path)
+    assert env["git"] == {"commit": FAKE_COMMIT, "dirty": None, "source": "file"}
+    assert output_filename(env) == "env-0123456789ab.json"  # a file named after the commit

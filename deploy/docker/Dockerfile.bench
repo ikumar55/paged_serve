@@ -26,6 +26,11 @@ RUN pip install -c /app/constraints.txt httpx numpy matplotlib
 COPY bench /app/bench
 
 ENV PYTHONPATH=/app
+# Which code this image holds, so that every result file it writes records the commit
+# (bench/env_capture.py reads it; there is no .git inside the image).
+ARG PAGEDSERVE_COMMIT=unknown
+ENV PAGEDSERVE_COMMIT=${PAGEDSERVE_COMMIT}
+
 USER 10001:10001
 
 ENTRYPOINT ["python", "-m", "bench.loadgen"]

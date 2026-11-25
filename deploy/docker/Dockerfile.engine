@@ -48,6 +48,12 @@ ENV PYTHONPATH=/app \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
+# Which code this image holds, so that result files made from it say so (bench/env_capture.py reads
+# it; there is no .git inside the image). Late in the file so that changing it keeps the cached
+# layers above: docker build --build-arg PAGEDSERVE_COMMIT=$(git rev-parse HEAD) ...
+ARG PAGEDSERVE_COMMIT=unknown
+ENV PAGEDSERVE_COMMIT=${PAGEDSERVE_COMMIT}
+
 USER 10001:10001
 EXPOSE 8000
 

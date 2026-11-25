@@ -13,11 +13,12 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 import json
+import os
 import platform
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -80,13 +81,41 @@ def parse_nvcc_release(text: str) -> str | None:
     return match.group(1) if match else None
 
 
-def git_info(run: Runner) -> dict[str, Any]:
+COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def git_info(
+    run: Runner, root: Path = REPO_ROOT, environ: Mapping[str, str] | None = None
+) -> dict[str, Any]:
+    """Which code produced a result, and how we know.
+
+    ``git`` is asked first. A copy of the code without ``.git`` (a ``git archive`` shipped to a
+    machine, a Docker image) cannot answer, so the commit may instead be given in the environment
+    variable ``PAGEDSERVE_COMMIT`` (the Dockerfiles set it from a build argument) or in a file named
+    ``COMMIT`` in the repository root (the GPU session scripts write it next to the shipped code).
+    Only a full 40-digit hexadecimal id counts, so ``unknown`` and typos are ignored. ``source``
+    says which of the three answered; ``dirty`` is known only when git answered.
+    """
+    environ = os.environ if environ is None else environ
     commit = run(["git", "rev-parse", "HEAD"])
-    status = run(["git", "status", "--porcelain"])
-    return {
-        "commit": commit.strip() if commit else None,
-        "dirty": bool(status.strip()) if status is not None else None,
-    }
+    if commit and commit.strip():
+        status = run(["git", "status", "--porcelain"])
+        return {
+            "commit": commit.strip(),
+            "dirty": bool(status.strip()) if status is not None else None,
+            "source": "git",
+        }
+    from_env = environ.get("PAGEDSERVE_COMMIT", "").strip().lower()
+    if COMMIT_RE.fullmatch(from_env):
+        return {"commit": from_env, "dirty": None, "source": "env"}
+    try:
+        from_file = (root / "COMMIT").read_text(encoding="utf-8").strip().lower()
+    except OSError:
+        from_file = ""
+    if COMMIT_RE.fullmatch(from_file):
+        return {"commit": from_file, "dirty": None, "source": "file"}
+    return {"commit": None, "dirty": None, "source": None}
 
 
 def torch_info() -> dict[str, Any]:
@@ -122,13 +151,18 @@ def redact_home(text: str) -> str:
     return text.replace(home, "~") if len(home) > 1 else text
 
 
-def capture_environment(run: Runner = run_command, args: Sequence[str] = ()) -> dict[str, Any]:
+def capture_environment(
+    run: Runner = run_command,
+    args: Sequence[str] = (),
+    root: Path = REPO_ROOT,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     nvidia = run(NVIDIA_SMI_QUERY)
     nvcc = run(["nvcc", "--version"])
     return {
         "captured_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "command": redact_home(" ".join(["python", "-m", "bench.env_capture", *args])),
-        "git": git_info(run),
+        "git": git_info(run, root, environ),
         "python": {
             "version": platform.python_version(),
             "implementation": platform.python_implementation(),

@@ -18,6 +18,8 @@ x-engine: &engine
   build:
     context: ../..
     dockerfile: deploy/docker/Dockerfile.engine
+    args:
+      PAGEDSERVE_COMMIT: ${PAGEDSERVE_COMMIT:-unknown}
   image: pagedserve-engine:0.1.0
   command:
     - "--backend"
@@ -41,6 +43,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.router
+      args:
+        PAGEDSERVE_COMMIT: ${PAGEDSERVE_COMMIT:-unknown}
     image: pagedserve-router:0.1.0
     command:
       - "--replica"
@@ -68,6 +72,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.bench
+      args:
+        PAGEDSERVE_COMMIT: ${PAGEDSERVE_COMMIT:-unknown}
     image: pagedserve-bench:0.1.0
     command:
       - "run"

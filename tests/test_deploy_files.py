@@ -406,3 +406,20 @@ def test_the_mock_overlay_uses_the_cpu_build_of_the_engine_image() -> None:
     # the Dockerfile really offers that build: the index is an argument that can be set to "cpu"
     assert "ARG TORCH_CUDA_INDEX=cu132" in dockerfile("engine")
     assert 'whl/${TORCH_CUDA_INDEX}"' in dockerfile("engine")
+
+
+def test_every_image_and_the_compose_file_carry_the_commit() -> None:
+    """Results made in a container must be able to say which code ran (no .git inside an image)."""
+    for name in ("engine", "router", "bench"):
+        text = dockerfile(name)
+        assert instruction(text, "ARG").count("PAGEDSERVE_COMMIT=unknown") == 1
+        assert "PAGEDSERVE_COMMIT=${PAGEDSERVE_COMMIT}" in instruction(text, "ENV")
+        # late in the file, after the code is copied, so that a new commit keeps the cached layers
+        lines = text.splitlines()
+        arg_line = next(i for i, ln in enumerate(lines) if ln.startswith("ARG PAGEDSERVE_COMMIT"))
+        copy_line = max(i for i, ln in enumerate(lines) if ln.startswith("COPY "))
+        assert arg_line > copy_line
+    compose = yaml.safe_load((DOCKER / "compose.mock.yaml").read_text(encoding="utf-8"))
+    for service in ("engine-0", "router", "loadgen"):
+        args = compose["services"][service]["build"]["args"]
+        assert args["PAGEDSERVE_COMMIT"] == "${PAGEDSERVE_COMMIT:-unknown}"

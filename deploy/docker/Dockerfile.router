@@ -27,6 +27,10 @@ COPY engine /app/engine
 COPY router /app/router
 
 ENV PYTHONPATH=/app
+# Which code this image holds (see Dockerfile.engine).
+ARG PAGEDSERVE_COMMIT=unknown
+ENV PAGEDSERVE_COMMIT=${PAGEDSERVE_COMMIT}
+
 USER 10001:10001
 EXPOSE 9000
 
