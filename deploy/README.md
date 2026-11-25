@@ -171,5 +171,11 @@ onto two GPUs.** If a first GPU start fails, try these in this order:
   replicas and returns 503 `no replica has answered yet` if none answers 200. After the first contact it
   goes back to the cooldown flags as before, deliberately: a busy replica that is slow to answer must not
   make the router unready, and a router that lost every replica after having served already reports 503
-  through the cooldown. Not re-run on the cluster yet; covered by six tests, with every deliberate
-  breakage caught.
+  through the cooldown. **Re-run on the `kind` cluster:** with no backend (`single-gpu` overlay on a
+  GPU-less cluster) the router is `0/1` not Ready, where before the fix it was `1/1`; when the engines can
+  start (`mock` overlay) all three pods are Ready within 15 seconds. Covered by six tests, with every
+  deliberate breakage caught.
+- **The router's liveness probe is a TCP check, not `/health`.** With `/health` as the liveness probe,
+  Kubernetes would restart the router for being not ready while the engines were still loading their
+  weights (minutes on a GPU). Alive means the process accepts connections; ready means a backend
+  answers. Checked on the cluster: 170 seconds with no backend, router not Ready, zero restarts.

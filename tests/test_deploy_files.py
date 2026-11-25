@@ -204,10 +204,20 @@ def test_every_probe_hits_a_route_the_server_really_has() -> None:
     }
     for name, container in containers.items():
         for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
-            if probe in container:
-                assert container[probe]["httpGet"]["path"] in routes[name], (name, probe)
-                assert container[probe]["httpGet"]["port"] == "http"
+            if probe not in container:
+                continue
+            spec = container[probe]
+            if "httpGet" in spec:
+                assert spec["httpGet"]["path"] in routes[name], (name, probe)
+                assert spec["httpGet"]["port"] == "http"
+            else:
+                assert spec["tcpSocket"]["port"] == "http", (name, probe)
     assert "/health" in routes["engine"] and "/health" in routes["router"]
+    # The router is ready only when a backend answers (its /health asks), but alive as long as it
+    # accepts connections: a liveness check on /health would restart it while the engines load.
+    router = containers["router"]
+    assert router["readinessProbe"]["httpGet"]["path"] == "/health"
+    assert "tcpSocket" in router["livenessProbe"] and "httpGet" not in router["livenessProbe"]
 
 
 # -- the overlays do what they claim -------------------------------------------------------------

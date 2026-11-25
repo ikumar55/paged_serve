@@ -45,7 +45,7 @@ response itself is never edited. The first review is `independent-review-2026-11
 | S2-16 | The decision log (about 1,950 lines) is hard to skim | Open | Item 12: a one-page summary table at the top of `decisions.md` |
 | S2-17 | Unexplained remainder to vLLM beyond graphs: unfused QKV and gate/up projections, one-at-a-time prefills, the Python step | Open | D-028 (attribution), then D-029 (batched prefill) |
 | S2-18 | Mutation-testing claims were done by hand and cannot be rerun | Open (minor) | Item 12 if cheap: keep the mutation scripts in `tools/` |
-| ours-1 | Found by us on a `kind` cluster, not by the reviewer: the router's `/health` stays 200 with no reachable replica (replicas are healthy until a request fails; the poll does not mark them down), so its Kubernetes readiness probe proves nothing | **Fixed 2026-11-24** (six tests), recorded in `deploy/README.md`; not yet re-run on the cluster | Item 12 (done) |
+| ours-1 | Found by us on a `kind` cluster, not by the reviewer: the router's `/health` stays 200 with no reachable replica (replicas are healthy until a request fails; the poll does not mark them down), so its Kubernetes readiness probe proves nothing | **Fixed 2026-11-24** (six tests) and re-checked on the `kind` cluster (router not Ready with no backend, Ready once engines are up, no restarts); recorded in `deploy/README.md` | Item 12 (done) |
 
 ## The response (unedited)
 
