@@ -8,13 +8,42 @@ tail latency). Each result records how late it was sent, so a saturated load gen
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
+from typing import TypeVar
 
 import httpx
 
 from bench.client import RequestResult, execute_request
 from bench.workload import RequestSpec
+
+T = TypeVar("T")
+LAG_PROBE_INTERVAL_S = 0.01
+
+
+async def sample_loop_lag(samples: list[float], interval_s: float = LAG_PROBE_INTERVAL_S) -> None:
+    """Forever: sleep ``interval_s`` and record how much later than that the loop woke us.
+
+    A loop too busy to run a 10 ms timer on time is too busy to read responses on time.
+    """
+    while True:
+        before = time.perf_counter()
+        await asyncio.sleep(interval_s)
+        samples.append(max(0.0, time.perf_counter() - before - interval_s))
+
+
+async def with_loop_lag(work: Awaitable[T]) -> tuple[T, list[float]]:
+    """Await ``work`` while sampling this event loop's lateness; returns both."""
+    samples: list[float] = []
+    probe = asyncio.create_task(sample_loop_lag(samples))
+    try:
+        result = await work
+    finally:
+        probe.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await probe
+    return result, samples
 
 
 async def run_workload(
@@ -24,9 +53,14 @@ async def run_workload(
     *,
     timeout_s: float,
     ignore_eos: bool = True,
+    start: float | None = None,
 ) -> list[RequestResult]:
-    """Send every request at its arrival time and return results ordered by request id."""
-    start = time.perf_counter()
+    """Send every request at its arrival time and return results ordered by request id.
+
+    ``start`` is the ``time.perf_counter()`` value that arrival time 0 refers to (now, if not
+    given); load-generator processes that share one run are given the same instant.
+    """
+    start = time.perf_counter() if start is None else start
     tasks: list[asyncio.Task[RequestResult]] = []
     for spec in specs:
         delay = start + spec.arrival_s - time.perf_counter()

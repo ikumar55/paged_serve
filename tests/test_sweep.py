@@ -38,6 +38,9 @@ class FakeBackend:
     def wait_ready(self, handle: Any) -> bool:
         return self.ready
 
+    def fd_limits(self, handle: Any) -> dict[str, Any] | None:
+        return {"soft": 4096, "hard": 65536}
+
     def run_load(self, config: RunConfig, result_path: Path) -> int:
         self.events.append(f"load {config.name}")
         if self.crash_on == config.name:
@@ -314,3 +317,33 @@ def test_loadgen_args_are_passed_to_every_run_and_recorded(
     assert code == 0
     entry = json.loads((out / "manifest.jsonl").read_text().splitlines()[0])
     assert entry["loadgen_args"] == ["--shared-prefix-groups=8"]
+
+
+def test_every_run_records_the_open_file_limits_of_the_server_and_the_generator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bench import sweep
+
+    monkeypatch.setattr(sweep, "own_limits", lambda: {"soft": 1024, "hard": 2048})
+    entry = execute_run(RunConfig(8, 0, 2), FakeBackend(), tmp_path)
+    assert entry["server_fd_limits"] == {"soft": 4096, "hard": 65536}
+    assert entry["generator_fd_limits"] == {"soft": 1024, "hard": 2048}
+
+
+def test_a_server_that_never_became_ready_has_no_limits_recorded(tmp_path: Path) -> None:
+    entry = execute_run(RunConfig(8, 0, 2), FakeBackend(ready=False), tmp_path)
+    assert entry["status"] == "server_failed_to_start"
+    assert "server_fd_limits" not in entry and "generator_fd_limits" not in entry
+
+
+def test_the_subprocess_backend_reads_the_limits_of_the_servers_own_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from bench import sweep
+
+    seen: list[int] = []
+    monkeypatch.setattr(sweep, "process_limits", lambda pid: seen.append(pid) or {"soft": 7})
+    backend = sweep.SubprocessBackend(SimpleNamespace())  # type: ignore[arg-type]
+    assert backend.fd_limits(SimpleNamespace(pid=321)) == {"soft": 7} and seen == [321]

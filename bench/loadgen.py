@@ -24,10 +24,12 @@ import httpx
 
 from bench.client import RequestResult
 from bench.env_capture import capture_environment
-from bench.metrics import summarize
+from bench.fdlimits import own_limits
+from bench.metrics import distribution, summarize
 from bench.plots import plot_run, plot_sweep
 from bench.results_io import read_results, write_results
-from bench.runner import run_workload, warm_up
+from bench.runner import run_workload, warm_up, with_loop_lag
+from bench.sharded import DEFAULT_LEAD_S, merge, run_sharded, shard_stats
 from bench.workload import LengthDist, WorkloadConfig, generate_workload
 
 
@@ -80,6 +82,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--fetch-server-info",
         action="store_true",
         help="record GET /info from the server before and after the run (our own servers)",
+    )
+    run.add_argument(
+        "--shards",
+        type=int,
+        default=1,
+        help="split the run over this many processes (D-030): the same requests at the same "
+        "arrival times, so one Python process is not the bottleneck; needs a real server URL",
+    )
+    run.add_argument(
+        "--shard-lead",
+        type=float,
+        default=DEFAULT_LEAD_S,
+        help="seconds the shard processes are given to start up before arrival time 0",
     )
     run.add_argument("--out", type=Path, required=True, help="result file to create (JSONL)")
 
@@ -186,17 +201,34 @@ def _build_meta(
             "timeout_s": args.timeout,
             "ignore_eos": not args.no_ignore_eos,
             "warmup_requests": args.warmup,
+            "shards": args.shards,
+            "open_file_limit": own_limits(),
         },
         "client_env": client_env,
         "server_env": server_env,
     }
 
 
+async def _warm_up_only(
+    args: argparse.Namespace, workload: WorkloadConfig, transport: httpx.AsyncBaseTransport | None
+) -> None:
+    async with httpx.AsyncClient(base_url=args.url, transport=transport, timeout=None) as client:
+        await warm_up(
+            client,
+            args.model,
+            args.warmup,
+            vocab_size=workload.vocab_size,
+            min_token_id=workload.min_token_id,
+            timeout_s=args.timeout,
+        )
+
+
 async def _execute(
     args: argparse.Namespace,
     workload: WorkloadConfig,
     transport: httpx.AsyncBaseTransport | None,
-) -> list[RequestResult]:
+) -> tuple[list[RequestResult], dict[str, float] | None]:
+    """The results and the distribution of this process's event-loop lateness during the run."""
     async with httpx.AsyncClient(
         base_url=args.url,
         transport=transport,
@@ -212,13 +244,16 @@ async def _execute(
                 min_token_id=workload.min_token_id,
                 timeout_s=args.timeout,
             )
-        return await run_workload(
-            generate_workload(workload),
-            client,
-            args.model,
-            timeout_s=args.timeout,
-            ignore_eos=not args.no_ignore_eos,
+        results, lag = await with_loop_lag(
+            run_workload(
+                generate_workload(workload),
+                client,
+                args.model,
+                timeout_s=args.timeout,
+                ignore_eos=not args.no_ignore_eos,
+            )
         )
+        return results, distribution(lag)
 
 
 async def _fetch_info(
@@ -252,8 +287,32 @@ def _command_run(
     info_before = asyncio.run(_fetch_info(args.url, transport)) if args.fetch_server_info else None
     if args.fetch_server_info and info_before is None:
         print("warning: could not fetch /info from the server; recording null", file=sys.stderr)
+    if args.shards < 1:
+        print("error: --shards must be at least 1", file=sys.stderr)
+        return 2
+    if args.shards > 1 and transport is not None:
+        print("error: --shards needs a real server URL, not a transport", file=sys.stderr)
+        return 2
+    stats: list[dict[str, Any]] | None = None
     try:
-        results = asyncio.run(_execute(args, workload, transport))
+        if args.shards == 1:
+            results, lag = asyncio.run(_execute(args, workload, transport))
+            loop_lags = [lag]
+        else:
+            if args.warmup:
+                asyncio.run(_warm_up_only(args, workload, transport))
+            outcomes = run_sharded(
+                args.url,
+                args.model,
+                workload,
+                args.shards,
+                timeout_s=args.timeout,
+                ignore_eos=not args.no_ignore_eos,
+                lead_s=args.shard_lead,
+            )
+            results = merge(outcomes, workload.num_requests)
+            loop_lags = [o.loop_lag for o in sorted(outcomes, key=lambda o: o.shard)]
+            stats = shard_stats(outcomes)
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -263,7 +322,9 @@ def _command_run(
             "before": info_before,
             "after": asyncio.run(_fetch_info(args.url, transport)),
         }
-    summary = summarize(results)
+    summary = summarize(results, loop_lags)
+    summary["shards"] = args.shards
+    summary["shard_stats"] = stats
     write_results(args.out, meta, results, summary)
     print(format_summary(summary))
     print(f"wrote {args.out}")

@@ -32,7 +32,7 @@ estimates are recorded here as if they were results.
 | D-027 | Graph path's bf16 accuracy against fp32 | all four criteria met; criteria chosen after the fact; a rerun to record the replay counts is pending |
 | D-028 | Engine-thread time with kernel and graphs | planned with predictions; accounting and report tool built; not measured |
 | D-033 | A sensitive bf16 accuracy test on real text (KL and perplexity, Hugging Face fp32 as the independent truth) | planned with criteria and predictions; tool built and CPU-tested (25 tests, 13 breakages caught); not run on the real model |
-| D-030 | Matched same-session comparison with vLLM | planned 2026-11-25 with arms, validity rules, predictions and how the ratio may be stated; a sharded load generator to build first; nothing built or run |
+| D-030 | Matched same-session comparison with vLLM | planned 2026-11-25 with arms, validity rules, predictions and how the ratio may be stated; tools built and CPU-tested the same day (sharded generator, null server, report, two session scripts; 76 tests, 37 breakages caught); optional bucketed-gather arm not built; nothing run |
 | D-031 | Is the decode-attention kernel the lever? (isolated GB/s, other implementations, split-KV) | planned 2026-11-25 with predictions and a lever test; optional, after D-030; nothing built or run |
 
 Not yet entries: batched prefill (D-029, if D-028 triggers it) and generality on a second model (D-032); see
@@ -2206,6 +2206,39 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it) and generality on
   merge, the lag probe, the steady-window and in-flight metrics; the fd-limit field in the sweep
   manifest; `bench/matched_report.py` (validity rules, windows, paired ratios, the predictions beside
   the measurements); `deploy/gpu_d030_a.sh` and `gpu_d030_b.sh`; the optional bucketed gather.
+- **Build log (2026-11-25, CPU only; nothing measured; the optional bucketed gather is not built).**
+  Built and tested: `bench/sharded.py` and `--shards K` / `--shard-lead` in `bench.loadgen` (K spawned
+  processes; each builds the whole seeded workload, keeps the ids whose remainder modulo K is its own
+  and sends them at their own arrival times from one shared wall-clock start; the parent checks every
+  request came back exactly once); in every summary: `steady_window` (15 to 50 s, by completion time),
+  `peak_inflight` (timed-out requests count, refused connections do not; unlike `bench.inflight`),
+  `event_loop_lag_s` per process and its worst p99, `shards`, `shard_stats`, and the generator's open-file
+  limit in `request_params`; **the `generator_saturated` flag now also turns on when an event loop's lag p99
+  exceeds 25 ms (new results only)**; `bench/fdlimits.py` and, in every sweep-manifest entry,
+  `server_fd_limits` (read from `/proc` for the server's pid) and `generator_fd_limits`;
+  `bench/null_server.py` (a server that answers at once; several workers share a port on Linux);
+  `bench/matched_report.py` with `generator` (step 0), `rates` (probe to offered rate) and `report`
+  (validity rules, steady-window capacity, paired ratios, the wording rule, latency cell, the six
+  predictions each marked held, missed or not evaluable, the machine audit applied through
+  `bench.machine_audit`); `deploy/gpu_d030_lib.sh`, `gpu_d030_a.sh` (step 0, probes and main runs of E, G
+  and V64) and `gpu_d030_b.sh` (V32, VE and the latency cell). 76 new tests (CPU suite 619 passed); 37
+  deliberate breakages of the new code, all caught after one survivor (a repeated probe that happened to
+  sort first) led to a test with both orders. Also run on **Linux, in Docker, against the null server**
+  (8 cores): at 192 req/s for 30 s the sharded generator passes step 0 with 2, 4 and 8 processes.
+- **Interpretations made while building (the plan's numbers are unchanged; recorded so that they are not
+  a surprise later).** (a) The wording rule for vLLM 64 over the engine is applied to the **worst seed**
+  (the plan says "the ratio"); the mean is printed beside it. (b) "Delivered" in the offered-at-least-1.4-
+  times rule is the larger of the whole-run and steady-window rates, the stricter test. (c) A repeated
+  probe is the one offered at the higher rate. (d) The `rates` command is run with the audit waived (the
+  probe only sets the rate); the final report requires the audit, and says loudly if it was waived. (e)
+  A run with no recorded open-file limit for the server or the generator is invalid, not assumed fine.
+- **Finding while building: step 0 as written is a weak test.** Against the null server on the 8-core
+  container a **single** process also held 192 req/s (event-loop lag p99 15 ms, send lag p99 21 ms, both
+  under the limits), so passing step 0 does not show that sharding was needed, only that the generator is
+  not the limit at that load on that machine. The earlier flag (vLLM at 96 req/s in D-019) came from a
+  real server on a machine whose cores the server shared; its cause was not examined. The per-run rules
+  (lag in every counted run, in every process) are what protect each result; step 0 remains a
+  precondition, not a proof. Not changed (no result exists yet, so it could be, but nothing calls for it).
 - **Measured effect:** none yet.
 
 ### D-031 Is the decode-attention kernel the lever? Its efficiency in isolation and against other implementations (PLANNED, criteria and predictions fixed before any code or run)

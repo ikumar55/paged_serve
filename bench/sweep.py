@@ -42,6 +42,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
+from bench.fdlimits import own_limits, process_limits
+
 SYSTEMS = ("hf-static", "engine", "vllm")
 GPU_BUSY_PERCENT = 10  # other users' load above this makes a run "contended"
 GPU_SAMPLES = 5
@@ -81,6 +83,7 @@ class Backend(Protocol):
     def gpu_utilization(self) -> list[float]: ...
     def start_server(self, config: RunConfig) -> Any: ...
     def wait_ready(self, handle: Any) -> bool: ...
+    def fd_limits(self, handle: Any) -> dict[str, Any] | None: ...
     def run_load(self, config: RunConfig, result_path: Path) -> int: ...
     def stop_server(self, handle: Any) -> None: ...
 
@@ -112,6 +115,9 @@ def execute_run(
             entry.update(status="server_failed_to_start", exit_code=None)
         else:
             settle()
+            # The in-flight ceiling of D-025 was an open-file limit that nobody had read (D-030).
+            entry["server_fd_limits"] = backend.fd_limits(handle)
+            entry["generator_fd_limits"] = own_limits()
             entry["gpu_before_load"] = sample_gpu(backend)
             entry["exit_code"] = backend.run_load(config, result_path)
             entry["status"] = "ok" if entry["exit_code"] == 0 else "loadgen_failed"
@@ -291,6 +297,10 @@ class SubprocessBackend:
                 pass
             time.sleep(1)
         return False
+
+    def fd_limits(self, handle: subprocess.Popen[bytes]) -> dict[str, Any] | None:
+        """The server process's open-file limits (its in-flight connections count against them)."""
+        return process_limits(handle.pid)
 
     def run_load(self, config: RunConfig, result_path: Path) -> int:
         command = loadgen_command(self.args, config, result_path)

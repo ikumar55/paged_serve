@@ -80,6 +80,14 @@ prefix-aware router, add `--shared-prefix-groups 8 --shared-prefix-len 512 --sha
 each prompt then starts with one of eight fixed prefixes (the first ones more popular) followed by a
 unique suffix described by the `--prompt-*` options.
 
+One Python process cannot read thousands of streamed responses fast enough to load a very fast
+server (it was the limit when vLLM was measured at 96 req/s). `--shards K` splits one run over `K`
+processes that send exactly the same requests at exactly the same arrival times; every result then
+records each process's event-loop lag, the requests in flight at the peak, the completion rate in a
+steady-state window (15 s to 50 s) and the open-file limit, so a run in which the generator was the
+limit can be recognised and left out (D-030). `python -m bench.null_server` is a server that answers
+at once, for checking the generator itself.
+
 ## Engine server
 
 The paged engine behind the same streaming API as the baselines, so the load generator drives either:
