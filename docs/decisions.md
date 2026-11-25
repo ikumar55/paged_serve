@@ -1450,6 +1450,22 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same
   result does not transfer to real replicas and the router is described as such. If the precise
   policy does not beat the approximate one, the mock's finding that approximate does not lag
   precise is confirmed or refuted, whichever it is.
+- **Amendment 1 (2026-11-25, before the harness change is built and before any result exists; the
+  hypothesis, criteria and readings are unchanged).** Two settings the plan left open are fixed.
+  (a) *Run length and fleet settings:* 600 requests per run (100 s of arrivals at 6 req/s), a maximum
+  batch of 32 per replica, a load cap of 1,000 (so that it cannot override a policy), 32 prefix
+  groups of 1,024 tokens with skew 1, suffix median 64 (maximum 256), output median 32 (maximum 128),
+  `--vocab-size 100000`, seeds 0 to 3, per-request timeout 120 s, startup timeout 300 s (three
+  replicas load the weights at once). (b) *Warm-up:* every fresh replica receives two requests
+  directly (not through the router) of 8 tokens each with 4 output tokens, before the router gets any
+  traffic, so that the first real requests of a run do not pay for CUDA start-up and kernel
+  selection. A prompt shorter than a block leaves nothing in the prefix cache; its 8 tokens are
+  counted in that replica's prompt-token total (48 tokens against about 650,000 in a run, 0.007%) and
+  are not subtracted. The warm-up is recorded in the result file (`warmup_requests`) and is the same
+  for every variant. The harness change is a `--backend llama` option in `bench/router_compare.py`
+  (real `engine.server` replicas from `--model-dir`, the result labelled as real replicas sharing one
+  GPU and one CPU, the mock timing section absent); the mock path and every recorded mock result are
+  unchanged.
 - **Measured effect:** none yet.
 
 ### D-023 What paging buys: concurrency at a fixed memory budget (PLANNED, criteria fixed in advance)
