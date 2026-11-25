@@ -47,7 +47,7 @@ ignore_missing_imports = true
 # A Triton kernel is a function with untyped tensor-pointer parameters and a decorator that
 # is untyped when Triton is not installed (as on the CPU-only laptop); everything else stays strict.
 [[tool.mypy.overrides]]
-module = "engine.triton_paged_attention"
+module = ["engine.triton_paged_attention", "engine.triton_split_attention"]
 disallow_untyped_decorators = false
 disallow_untyped_defs = false
 disallow_incomplete_defs = false

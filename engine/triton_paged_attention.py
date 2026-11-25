@@ -108,9 +108,18 @@ def _is_power_of_two(value: int) -> bool:
 
 
 def paged_decode_attention(
-    q: Tensor, k_pool: Tensor, v_pool: Tensor, tables: Tensor, lengths: Tensor
+    q: Tensor,
+    k_pool: Tensor,
+    v_pool: Tensor,
+    tables: Tensor,
+    lengths: Tensor,
+    num_warps: int = 2,
 ) -> Tensor:
-    """Decode attention over the paged pool without gathering. See ``engine.paged_attention``."""
+    """Decode attention over the paged pool without gathering. See ``engine.paged_attention``.
+
+    ``num_warps`` is the Triton launch option (2 is what the engine has always used; the D-031
+    microbenchmark tries 1, 4 and 8 as well).
+    """
     batch, heads, new, head_dim = q.shape
     num_blocks, kv_heads, block_size, pool_dim = k_pool.shape
     del num_blocks
@@ -152,6 +161,6 @@ def paged_decode_attention(
         GROUP=group,
         BLOCK_SIZE=block_size,
         HEAD_DIM=head_dim,
-        num_warps=2,
+        num_warps=num_warps,
     )
     return out

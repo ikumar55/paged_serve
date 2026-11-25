@@ -33,7 +33,7 @@ estimates are recorded here as if they were results.
 | D-028 | Engine-thread time with kernel and graphs | planned with predictions; accounting and report tool built; not measured |
 | D-033 | A sensitive bf16 accuracy test on real text (KL and perplexity, Hugging Face fp32 as the independent truth) | planned with criteria and predictions; tool built and CPU-tested (25 tests, 13 breakages caught); not run on the real model |
 | D-030 | Matched same-session comparison with vLLM | planned 2026-11-25 with arms, validity rules, predictions and how the ratio may be stated; tools built and CPU-tested the same day (sharded generator, null server, report, two session scripts; 76 tests, 37 breakages caught); optional bucketed-gather arm not built; nothing run |
-| D-031 | Is the decode-attention kernel the lever? (isolated GB/s, other implementations, split-KV) | planned 2026-11-25 with predictions and a lever test; optional, after D-030; nothing built or run |
+| D-031 | Is the decode-attention kernel the lever? (isolated GB/s, other implementations, split-KV) | planned 2026-11-25, amended the same day after existing data showed the kernel is about half the decode step (4.07 ms) at about 12% of the card's bandwidth; tool and split-KV kernel built and CPU-tested (103 tests, 31 breakages caught); now runs before D-030; nothing run |
 
 Not yet entries: batched prefill (D-029, if D-028 triggers it) and generality on a second model (D-032); see
 `docs/roadmap.md`.
@@ -2302,8 +2302,49 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it) and generality on
 - **Limits stated now:** one card, one model's shapes, a microbenchmark (not the end-to-end speed), the
   copy bandwidth as the practical roofline (it is not a proof of what attention could reach), the
   production kernels' versions as installed that day (recorded), and no claim about other GPUs.
+- **Amendment 1 (2026-11-25, before any D-031 code or result exists; nothing below is a new
+  measurement, and the original predictions above stay on record).** When the tool was about to be
+  built I read the existing profile of the real-mix decode step (`results/profile-mix-d020-rtx5090.json`,
+  D-020 prerequisite, kernel without graphs, batch 60, mean context 448): the kernel
+  `_decode_kernel` takes **4.07 ms per step (16 launches, 254 microseconds each), 58% of the GPU's busy
+  time of 6.95 ms**. That contradicts prediction (6) (0.7 to 2 ms, 10 to 25% of the step) and makes the
+  lever test's likely answer "attention is a lever". It also implies a bandwidth: about 55 MB must be
+  read per layer (60 sequences x 448 tokens x 2 x 8 x 64 x 2 bytes), so 55 MB over 254 microseconds is
+  **about 215 GB/s, 12% of the specified 1,792 GB/s**, below prediction (1)'s 15 to 40%. An occupancy
+  count explains it: 60 x 8 = 480 programs of two warps on 170 multiprocessors is about three programs,
+  six warps, per multiprocessor, far too few to hide memory latency in a serial walk along the blocks, so
+  prediction (3) (split-KV within 10% at batch 64) is also unlikely. The revised predictions, written
+  before any D-031 measurement: **(1') the current kernel on the real mix at batch 60 takes 200 to 320
+  microseconds a layer and reaches 8 to 20% of the measured copy bandwidth; (3') the best split-KV
+  variant (2, 4 or 8 splits) is at least 1.3 times faster than the current kernel on the real mix at
+  batch 60 (and at least 2 times at batch 8 or less with contexts of 1,024 or more, unchanged); (6')
+  `16 t / s` for the current kernel is 0.45 to 0.60 (the profile's 4.07 ms of a 7.8 ms graph step is
+  0.52), so an infinitely fast kernel could give up to about 2 times on decode.** Predictions (2), (4)
+  and (5) are unchanged. The lever test and the adoption rule of the interpretation stand as written. A
+  consequence for the order of work: if (6') holds, the kernel is the largest single piece of the
+  decode step and D-031 becomes the next speed experiment, not an optional extra after D-030.
+- **Build log (2026-11-25, CPU only; nothing measured).** Built and tested: `bench/kernel_microbench.py`
+  (cases: uniform contexts and the real mix; minimum bytes; CUDA-graph timing with a 256 MB L2 flush for
+  the cold figure and a 50-launch graph for the warm one; the measured copy roofline; the registry of
+  implementations with a correctness gate that fails any variant whose fp32 error exceeds 1e-5 or whose
+  bf16 error exceeds twice the baseline's, or that raises; the lever test; the amended predictions each
+  held or missed; the report; a merge of the vLLM environment's results; write-once output);
+  `engine/triton_split_attention.py` (the split-KV kernels, **never compiled or run**) with the rule
+  `split_blocks` and a float64 CPU reference of the whole algorithm in `engine/paged_attention.py`
+  (equal to the unsplit reference for 1 to 16 splits, including more splits than blocks, one-block
+  sequences, a dominant score in a late split, and slots no sequence owns); a `num_warps` option on the
+  existing kernel (default unchanged); `tests/test_split_attention_gpu.py` (the GPU gate, skipped here);
+  `deploy/gpu_d031.sh` (GPU tests, the real-mix step with graphs, the microbenchmark, FlashAttention in
+  the vLLM environment, FlashInfer in a throwaway directory within 15 minutes, the merged report). 103
+  new CPU tests (suite 722 passed); 31 deliberate breakages, all caught (one survivor, the step profile
+  taking eager entries, led to a stronger test; three mutation patterns had to be re-aimed). **The
+  FlashAttention and FlashInfer adapters were written from memory of their APIs without running them;
+  they are expected to need fixing on the machine, and a failure is reported, not hidden.**
+- **Order of work, changed by amendment 1:** D-031 now runs **before** D-030, because a better kernel
+  would change what D-030 measures. Adopting a variant needs its own plan and the gates of D-025 and
+  D-020 again.
 - **Time box:** about one day of work (the tool, the split-KV variant with its CPU tests) and one
-  short session; dropped without a result if D-030 has not been done.
+  short session.
 - **Measured effect:** none yet.
 
 ## Open verification items
