@@ -64,7 +64,7 @@ Linux (`323 passed, 10 deselected` on the RTX 5090 machine on 2026-11-23, before
 were added). The 3 skips are the two GPU test files that need Triton (not installed on the
 laptop) and the machine monitor's `/proc` test (Linux only). The GPU tests of the kernel
 (15) and of CUDA graphs (4) passed on the RTX 5090 machine on 2026-11-24. The suite has not been run
-on Linux since the tests added on 2026-11-24, and CI has not run on any GPU-era commit.
+on Linux since the tests added on 2026-11-24 except by CI: GitHub Actions (Ubuntu, CPU torch: lint, type check and the CPU tests) ran green on the pushes of 2026-11-24 and 2026-11-25 (`a5a5ea3`, `ad0215a`, `c7e416c`).
 
 ## 3. Measurements so far
 
@@ -235,8 +235,10 @@ session.
    hit rate near zero. The shape of a shared-prefix workload is a modelling choice; state it.
 5. **The mock's timing is a placeholder.** Calibrate it from real runs before using it to simulate
    or to compare policies.
-6. **CI has not been checked** since the recent pushes (GitHub Actions runs on Ubuntu with CPU
-   torch). Look at the Actions tab; Linux-only failures are possible.
+6. **CI is green on the recent pushes** (GitHub Actions on Ubuntu with CPU torch: lint, type check
+   and the CPU tests passed for `a5a5ea3`, `ad0215a` and `c7e416c`, checked with `gh run list`).
+   Commits after `c7e416c` are local until pushed. CI does not run the GPU tests, the Docker builds
+   or the Kubernetes checks.
 7. **Windows-only test noise:** `test_runner.py::test_every_request_completes_in_order_at_its_scheduled_time`
    and `test_loadgen_cli.py::test_end_to_end_over_a_real_socket` fail intermittently because
    `asyncio.sleep` uses a 15.6 ms clock there. Not a code bug; the load generator runs on Linux for

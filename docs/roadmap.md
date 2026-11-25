@@ -67,7 +67,7 @@ are estimates, not promises.
    graphs' replay counts (S2-8). Finish with the usual write-up, then decide D-029 from the
    admission share.
 2. **Phase 2, no machine needed (about 1.5 days):**
-   - **Credibility sweep (item 12):** push and get CI green (needs the owner's say-so); write the
+   - **Credibility sweep (item 12):** push and get CI green (**done 2026-11-25**, CI green on `c7e416c`); write the
      commit id into every result manifest and environment capture (S2-11); find the cause of the
      gather arm's ConnectErrors from the existing records (S2-3); cut the README to a short summary
      with one table and the three caveats (S2-9); a one-page summary table at the top of
