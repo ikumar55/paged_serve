@@ -31,6 +31,7 @@ estimates are recorded here as if they were results.
 | D-026 | Kernel's bf16 accuracy against fp32 | all four criteria met; criteria chosen after the fact |
 | D-027 | Graph path's bf16 accuracy against fp32 | all four criteria met; criteria chosen after the fact; a rerun to record the replay counts is pending |
 | D-028 | Engine-thread time with kernel and graphs | planned with predictions; accounting and report tool built; not measured |
+| D-033 | A sensitive bf16 accuracy test on real text (KL and perplexity, Hugging Face fp32 as the independent truth) | planned with criteria and predictions; nothing built or run |
 
 Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same-session vLLM comparison
 (D-030), the kernel microbenchmark (D-031) and generality on a second model (D-032); see
@@ -1978,6 +1979,60 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same
   If the shares differ by more than 5 points between the two rates, the 48 req/s figures are the
   ones used for the decision rule, and the difference is itself reported.
 - **Measured effect:** none yet. The measurement is waiting for the machine.
+
+### D-033 A sensitive bf16 accuracy test on real text, against an independent reference (PLANNED, criteria fixed before any code or run)
+
+- **Status:** planned 2026-11-24; **nothing is built or run.** Follows from the second review
+  (S2-7), which said that D-026 and D-027's metric has low power and uses the engine's own fp32 path
+  as the truth.
+- **What was wrong with the earlier instrument.** D-026 and D-027 compare the mean of the maximum
+  absolute logit error. That number is dominated by the rounding of bf16 logits (they are spaced 0.0625
+  to 0.125 apart at the sizes seen) and is the largest difference over 128,000 vocabulary entries, so a
+  small systematic difference in attention would be invisible in it. The reference, the engine's own
+  fp32 path, is validated against Hugging Face (50 of 50 prompts) but is not independent. And the text
+  was random tokens or greedy continuations, not natural text.
+- **Question.** On real text, how far is each bf16 decode path from fp32, measured by what matters for
+  a language model (the whole next-token distribution and the likelihood of the real next token), with
+  Hugging Face as the independent truth and Hugging Face's own bf16 run as the yardstick for "ordinary
+  bf16 noise"?
+- **Design.** A new tool, `bench.kl_perplexity`. Text: the project's own documents and source files
+  (English prose and code, about 100 KB, fixed list, hashed), tokenised with the model's tokenizer,
+  cut into 200 windows of 256 tokens at fixed seeded offsets. Each window is split into a 128-token
+  prompt and 127 following tokens that are **teacher-forced with the real text** one decode step at
+  a time, so every decode path (gather, Triton kernel, CUDA graphs) is exercised on real contexts;
+  the prompts are prefilled normally. Seven variants: *HF fp32* (Hugging Face, full forward pass, TF32
+  off: the truth), *HF bf16* (Hugging Face, full forward pass: the yardstick), *engine fp32 gather*,
+  *engine bf16 gather*, *engine bf16 kernel*, *engine bf16 graphs* and *engine fp32 kernel*. Per decode
+  position and variant: the KL divergence from the truth's next-token distribution, KL(truth || variant),
+  in float32 over the whole vocabulary; the negative log-likelihood of the real next token (so
+  perplexity per variant); and top-1 agreement with the truth. About 25,000 decode positions per
+  variant. 95% confidence intervals by bootstrap over windows (the unit of independence). One GPU
+  session, self-test first, monitor on; CPU tests first (a tiny model, the float64 reference in place of
+  the kernel, deliberately broken variants must be detected).
+- **Success criteria (all required, fixed now).** Gather means the engine's bf16 gather path.
+  (i) Mean KL of the kernel variant and of the graph variant is at most 1.10 times the gather path's.
+  (ii) Their perplexity differs from the gather path's by at most 0.2% (relative). (iii) The mean KL
+  of each engine bf16 variant (gather, kernel, graphs) is at most 2 times Hugging Face bf16's: the
+  engine is no noisier than an ordinary bf16 implementation. (iv) Sanity: engine fp32 gather and
+  engine fp32 kernel have mean KL below 1e-6 from HF fp32 and perplexity within 0.01% of it. A criterion
+  counts as met only if its point estimate is inside the limit **and** the upper end of its 95%
+  bootstrap interval is inside 1.5 times the limit's margin (for the ratios: the upper end of the
+  interval is at most 1.25); otherwise it is reported as inconclusive, not as met.
+- **Prediction, written now:** (i) ratios 0.95 to 1.05; (ii) differences under 0.05%; (iii) the engine
+  variants' mean KL within 0.8 to 1.5 times HF bf16's; (iv) holds. I expect the kernel to be slightly
+  closer to fp32 than the gather path (its attention accumulates in fp32), but not by enough to matter.
+- **Interpretation, fixed now:** all four met (not merely inconclusive): the earlier finding is
+  confirmed on an independent reference and a metric sensitive to the whole distribution, and the
+  accuracy claim can be stated as "indistinguishable from the original path on real text by KL and
+  perplexity", together with the facts about the failed strict gates (D-025, D-020). Inconclusive:
+  say so; widen the sample once (400 windows) before concluding, with the same limits. A criterion
+  failed: the kernel or the graph path is measurably less accurate in bf16 than the gather path (or than
+  Hugging Face) on real text; record which, and the speed figures carry that. (iv) failed: a bug; stop.
+- **Limits stated now:** one model, one GPU, text from this repository (not a standard benchmark such as
+  WikiText), 128 teacher-forced steps per window (the contexts are short compared with the 1,000-token
+  contexts of the speed runs), a single batch composition per path.
+- **Time box:** about half a day of work and one short GPU session (it can share the D-028 session).
+- **Measured effect:** none yet.
 
 ## Open verification items
 

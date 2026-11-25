@@ -73,7 +73,8 @@ are estimates, not promises.
      with one table and the three caveats (S2-9); a one-page summary table at the top of
      `decisions.md` (S2-16, **done 2026-11-24**); the README cut to a short summary (S2-9, **done
      2026-11-24**); build and CPU-test a sensitive bf16 accuracy tool, KL or perplexity on
-     real text against fp32 and Hugging Face bf16 (S2-7); make the router's `/health` verify that at
+     real text against fp32 and Hugging Face bf16 (S2-7; **planned 2026-11-24 as D-033, criteria and
+     predictions fixed; the tool is the next build, the run shares a machine session**); make the router's `/health` verify that at
      least one replica answers (it was optimistic until a request failed, found on `kind`): **done 2026-11-24**,
      with six tests; commit ids in results (S2-11): **done 2026-11-24** (env var, `COMMIT` file, Docker build
      argument; seven tests); the gather arm's ConnectError cause (S2-3): **done 2026-11-24**, in-flight

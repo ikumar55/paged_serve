@@ -33,7 +33,7 @@ response itself is never edited. The first review is `independent-review-2026-11
 | S2-4 | The cross-session composites ("2.1x", "4.2 to 2.1") mix sessions | Labelled as rough in the docs; to be replaced by a same-session measurement | Item 11 |
 | S2-5 | The Python load generator may cap vLLM (one run flagged generator-saturated) | Open | Item 11: use a load generator that is not the bottleneck (several processes or a faster client) |
 | S2-6 | The graph arm is only mildly saturated (about 5% below the 32 req/s offered), so D-028 has no headroom | Open, important for D-028 | Offer at least 48 req/s to the graph arm when D-028 runs (amend the D-028 plan **before** any result exists) |
-| S2-7 | D-026's metric has low power and uses the engine's own fp32 path as truth | Open | Item 12: a sensitive test (KL or perplexity on real text against fp32 and Hugging Face bf16) |
+| S2-7 | D-026's metric has low power and uses the engine's own fp32 path as truth | **Planned 2026-11-24 as D-033** (KL and perplexity on real text, Hugging Face fp32 as the independent truth and Hugging Face bf16 as the yardstick); not built or run | Item 12 |
 | S2-8 | D-027 is the most suspect result: replay unproven, and it sits uneasily with D-020's non-identical bf16 outputs | Open (rerun already planned) | Item 4 (the D-027 rerun with `graph_statistics`) |
 | S2-9 | Framing: "diagnostic" sits next to a 2.1x headline in the first README paragraph | **Fixed 2026-11-24**: the README now opens with one table and three caveats (labelled diagnostics and failed gates, the rough vLLM comparison, one GPU and the in-flight ceiling) | Item 12 (done) |
 | S2-10 | The tail of the work is not on GitHub and CI has not run on GPU-era commits | Open (push needs the owner's say-so) | Item 12 |
