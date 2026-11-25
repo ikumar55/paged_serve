@@ -395,3 +395,101 @@ def test_the_command_line_sets_the_approximate_policys_memory_limit(
 def test_a_router_needs_at_least_one_replica() -> None:
     with pytest.raises(ValueError):
         create_router_app([], make_policy("round-robin"))
+
+
+def test_health_is_503_until_a_replica_has_answered() -> None:
+    """Found on a Kubernetes cluster: a router whose only replica did not exist said ready."""
+    dead = f"http://127.0.0.1:{free_port()}"
+    router_app = create_router_app([dead], make_policy("round-robin"))
+    with use_client(), UvicornServer(router_app) as router:
+        health = client().get(f"{router}/health")
+    assert health.status_code == 503 and "no replica has answered yet" in health.text
+
+
+def test_health_turns_ok_when_a_replica_comes_up_after_the_router() -> None:
+    import uvicorn
+
+    port = free_port()
+    router_app = create_router_app([f"http://127.0.0.1:{port}"], make_policy("round-robin"))
+    replica_app, _ = make_replica()
+    replica = uvicorn.Server(
+        uvicorn.Config(replica_app, host="127.0.0.1", port=port, log_level="warning")
+    )
+    thread = threading.Thread(target=replica.run, daemon=True)
+    status = 503
+    with use_client(), UvicornServer(router_app) as router:
+        assert client().get(f"{router}/health").status_code == 503  # the replica is not there yet
+        thread.start()
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and status != 200:
+            time.sleep(0.2)
+            status = client().get(f"{router}/health").status_code
+        replica.should_exit = True
+        thread.join(timeout=10)
+    assert status == 200
+
+
+def test_after_the_first_contact_health_does_not_ask_the_replicas_again() -> None:
+    """Once a replica has answered, a busy replica that is slow to answer must not make the router
+    unready, so /health goes back to the cooldown flags and stops probing."""
+    replica_app, _ = make_replica()
+    probes: list[str] = []
+
+    @replica_app.middleware("http")
+    async def count_health_requests(request: Any, call_next: Any) -> Any:
+        if request.url.path == "/health":
+            probes.append("probe")
+        return await call_next(request)
+
+    with use_client(), UvicornServer(replica_app) as live:
+        router_app = create_router_app([live], make_policy("round-robin"))
+        with UvicornServer(router_app) as router:
+            statuses = [client().get(f"{router}/health").status_code for _ in range(4)]
+    assert statuses == [200, 200, 200, 200]
+    assert len(probes) == 1  # asked once, at the first call
+
+
+def test_a_served_request_counts_as_contact_so_health_stops_asking() -> None:
+    replica_app, _ = make_replica()
+    probes: list[str] = []
+
+    @replica_app.middleware("http")
+    async def count_health_requests(request: Any, call_next: Any) -> Any:
+        if request.url.path == "/health":
+            probes.append("probe")
+        return await call_next(request)
+
+    with use_client(), UvicornServer(replica_app) as live:
+        router_app = create_router_app([live], make_policy("round-robin"))
+        with UvicornServer(router_app) as router:
+            complete(router, prompt_of(6, 0), 3)  # contact by a real request
+            assert client().get(f"{router}/health").status_code == 200
+    assert probes == []  # no probe was needed: the request had already shown a replica answers
+
+
+def test_one_answering_replica_is_enough_for_the_first_health_check() -> None:
+    dead = f"http://127.0.0.1:{free_port()}"
+    replica_app, _ = make_replica()
+    with use_client(), UvicornServer(replica_app) as live:
+        router_app = create_router_app([dead, live], make_policy("round-robin"))
+        with UvicornServer(router_app) as router:
+            health = client().get(f"{router}/health")  # first call, before any request
+    assert health.status_code == 200
+
+
+def test_a_replica_that_answers_health_with_503_does_not_count_as_answering() -> None:
+    """The engine answers /health with 503 once its engine thread has failed."""
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+
+    failed = FastAPI()
+
+    @failed.get("/health")
+    async def failed_health() -> JSONResponse:
+        return JSONResponse({"status": "failed"}, status_code=503)
+
+    with use_client(), UvicornServer(failed) as broken:
+        router_app = create_router_app([broken], make_policy("round-robin"))
+        with UvicornServer(router_app) as router:
+            health = client().get(f"{router}/health")
+    assert health.status_code == 503 and "no replica has answered yet" in health.text

@@ -376,6 +376,16 @@ estimates are recorded here as if they were results.
     `dirty` true, because the per-variant cap was not yet committed when they were produced; the
     script is byte-identical to the version committed with them.
 
+- **Update 2026-11-24 (found by running the router on a Kubernetes cluster, D-007 follow-up).** The
+  router's `/health` reported healthy for a replica until a request to it failed, and the `/cache`
+  poll never marked a replica down, so a router started before its replicas (or with all of them
+  missing) was Ready with nothing behind it and its first request returned 503. `/health` now
+  probes the replicas' `/health` until some replica has answered once (a probe, a served request or
+  a successful poll counts), returning 503 `no replica has answered yet` until then; afterwards it
+  uses the cooldown flags exactly as before, so routing behavior and the pre-registered router
+  experiments (D-022) are unchanged. Six tests; five deliberate breakages (three of which first
+  survived and led to three more tests) are all caught.
+
 ### D-008 Mock backend for router, deployment and CI work
 
 - **Status:** decided; implemented in `engine/mock.py` and `engine.server --backend mock`, with a

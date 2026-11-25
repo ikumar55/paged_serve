@@ -51,6 +51,7 @@ def create_router_app(
     down_until = [0.0] * len(replicas)
     counters = {"failovers": 0, "upstream_errors": 0, "no_replica": 0, "bad_requests": 0}
     state: dict[str, Any] = {}
+    contacted = {"any": False}  # becomes True once some replica has answered a request or a poll
 
     def refresh_health() -> None:
         now = time.monotonic()
@@ -64,6 +65,7 @@ def create_router_app(
             body = response.json()
             replica.cached = frozenset(int(h, 16) for h in body["hashes"])
             replica.block_size = int(body["block_size"])
+            contacted["any"] = True
         except (httpx.HTTPError, ValueError, KeyError):
             pass  # keep the last report; a replica that is really down fails real requests
 
@@ -87,9 +89,27 @@ def create_router_app(
 
     app = FastAPI(title="pagedserve router", lifespan=lifespan)
 
+    async def some_replica_answers(client: httpx.AsyncClient) -> bool:
+        async def one(replica: ReplicaState) -> bool:
+            try:
+                response = await client.get(f"{replica.url}/health", timeout=2.0)
+                return response.status_code == 200
+            except httpx.HTTPError:
+                return False
+
+        return any(await asyncio.gather(*(one(r) for r in replicas)))
+
     @app.get("/health")
     async def health() -> Response:
         refresh_health()
+        # Until a replica has answered once, "healthy" is only the starting assumption, so ask:
+        # otherwise a router started before its replicas (a pod coming up in Kubernetes) would say
+        # ready with nothing behind it. After the first contact the cooldown flags are used as
+        # before, so a busy replica that is slow to answer never makes the router unready.
+        if not contacted["any"]:
+            if not await some_replica_answers(state["client"]):
+                return JSONResponse({"status": "no replica has answered yet"}, status_code=503)
+            contacted["any"] = True
         if any(r.healthy for r in replicas):
             return JSONResponse({"status": "ok"})
         return JSONResponse({"status": "no healthy replica"}, status_code=503)
@@ -166,6 +186,7 @@ def create_router_app(
                 tried.add(index)
                 counters["failovers"] += 1
                 continue
+            contacted["any"] = True
             break
 
         return StreamingResponse(

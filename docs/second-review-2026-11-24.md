@@ -37,7 +37,7 @@ response itself is never edited. The first review is `independent-review-2026-11
 | S2-8 | D-027 is the most suspect result: replay unproven, and it sits uneasily with D-020's non-identical bf16 outputs | Open (rerun already planned) | Item 4 (the D-027 rerun with `graph_statistics`) |
 | S2-9 | Framing: "diagnostic" sits next to a 2.1x headline in the first README paragraph | Open | Item 12: cut the README to a short summary with one table and three caveats |
 | S2-10 | The tail of the work is not on GitHub and CI has not run on GPU-era commits | Open (push needs the owner's say-so) | Item 12 |
-| S2-11 | Results record `git.commit: null` (a `git archive` was shipped) | Open | Item 12: write the commit id into every result manifest and environment capture |
+| S2-11 | Results record `git.commit: null` (a `git archive` was shipped) | **Fixed 2026-11-24** for new results: the environment capture falls back to `PAGEDSERVE_COMMIT` (Dockerfile build argument) or a `COMMIT` file (written by the GPU session scripts) and records the source; old results keep `null` | Item 12 (done) |
 | S2-12 | Kernel: no isolated evidence (GB/s against the card's peak), no comparison with FlashInfer, flash-attn or vLLM's kernel; simple form (no split-KV, fixed `num_warps`) | Open | Item 13 (D-031) |
 | S2-13 | The headline feature (paging) has no experiment of its own (D-023 unrun) | Open | Item 8 (D-023) |
 | S2-14 | Router only on a mock fleet; D-022 and D-024 unrun; keep router numbers off the resume | Open | Items 5 and 6 |
@@ -45,7 +45,7 @@ response itself is never edited. The first review is `independent-review-2026-11
 | S2-16 | The decision log (about 1,950 lines) is hard to skim | Open | Item 12: a one-page summary table at the top of `decisions.md` |
 | S2-17 | Unexplained remainder to vLLM beyond graphs: unfused QKV and gate/up projections, one-at-a-time prefills, the Python step | Open | D-028 (attribution), then D-029 (batched prefill) |
 | S2-18 | Mutation-testing claims were done by hand and cannot be rerun | Open (minor) | Item 12 if cheap: keep the mutation scripts in `tools/` |
-| ours-1 | Found by us on a `kind` cluster, not by the reviewer: the router's `/health` stays 200 with no reachable replica (replicas are healthy until a request fails; the poll does not mark them down), so its Kubernetes readiness probe proves nothing | Open, recorded in `deploy/README.md` | Item 12: `/health` verifies at least one replica answers, with a test |
+| ours-1 | Found by us on a `kind` cluster, not by the reviewer: the router's `/health` stays 200 with no reachable replica (replicas are healthy until a request fails; the poll does not mark them down), so its Kubernetes readiness probe proves nothing | **Fixed 2026-11-24** (six tests), recorded in `deploy/README.md`; not yet re-run on the cluster | Item 12 (done) |
 
 ## The response (unedited)
 

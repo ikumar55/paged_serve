@@ -161,11 +161,15 @@ onto two GPUs.** If a first GPU start fails, try these in this order:
 4. the startup probe budget (10 minutes: weights load, kernel compile and graph capture happen
    before the server answers).
 
-## Known behavior found while testing
+## Found while testing, and fixed
 
-- **The router's `/health` is optimistic.** A replica counts as healthy until a *request* to it fails
-  (then it rests for the cooldown); the background poll of `/cache` does not mark a replica down. So with
-  the only replica missing, the router's `/health` still returns 200 and Kubernetes marks it Ready, and the
-  first request returns 503 (found on `kind` with the `single-gpu` overlay while the engine pod was
-  Pending). Consequence: the router's readiness probe does not prove there is a working backend. A fix
-  is on the roadmap (item 12): make `/health` verify that at least one replica answers, with a test.
+- **The router's `/health` was optimistic.** A replica counted as healthy until a *request* to it
+  failed, so with the only replica missing the router's `/health` returned 200 and Kubernetes marked it
+  Ready; the first request then returned 503 (found on `kind` with the `single-gpu` overlay while the
+  engine pod was Pending). Fixed (2026-11-24): until some replica has answered once (a probe of its
+  `/health`, a successful request or a successful `/cache` poll), the router's `/health` asks the
+  replicas and returns 503 `no replica has answered yet` if none answers 200. After the first contact it
+  goes back to the cooldown flags as before, deliberately: a busy replica that is slow to answer must not
+  make the router unready, and a router that lost every replica after having served already reports 503
+  through the cooldown. Not re-run on the cluster yet; covered by six tests, with every deliberate
+  breakage caught.

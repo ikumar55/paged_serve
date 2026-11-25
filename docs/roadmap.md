@@ -73,7 +73,9 @@ are estimates, not promises.
      with one table and the three caveats (S2-9); a one-page summary table at the top of
      `decisions.md` (S2-16); build and CPU-test a sensitive bf16 accuracy tool, KL or perplexity on
      real text against fp32 and Hugging Face bf16 (S2-7); make the router's `/health` verify that at
-     least one replica answers (it is optimistic until a request fails, found on `kind`), with a test.
+     least one replica answers (it was optimistic until a request failed, found on `kind`): **done 2026-11-24**,
+     with six tests; commit ids in results (S2-11): **done 2026-11-24** (env var, `COMMIT` file, Docker build
+     argument; seven tests).
    - **Deployment (item 7), done offline 2026-11-24:** Dockerfiles for the engine server, the router and the load generator,
      and Kubernetes manifests (a Deployment with a GPU resource request, a Service, a router
      Deployment with the replicas as endpoints, config, probes on `/health`); validated offline
@@ -103,7 +105,7 @@ remains. If the machine stays unavailable, phase 2 can be done first.
 | 4 | Speed work, only after profiling | D-003, D-020, D-021, D-025, D-026, D-027, D-028 | **Current.** Kernel (D-025) and CUDA graphs (D-020) built and tested; strict gates failed in bf16, accuracy standards D-026 and D-027 met (post-hoc); diagnostics 1.55 times then 1.40 times, about 2.1 times the gather path in total; D-028 planned | D-028 measurement and the D-027 replay-count rerun (waiting for the machine); batched prefill (D-029) if admission is at least 20% of the step |
 | 5 | Router with prefix-cache-aware policies, validated on **real replicas** (the Phase 2 gate) | D-007, D-011, **D-022** | Built; compared only on a mock fleet. **Pre-registered (D-022); harness not yet changed; nothing measured** | Add a real-backend option to `bench/router_compare.py`, then run D-022 |
 | 6 | One extension: a calibrated serving simulator (chosen) or speculative decoding (declined) | D-011, **D-024** | **Pre-registered (D-024); not started** | Measure step and prefill times, fit the timing model, validate on held-out cells |
-| 7 | Deployment: Dockerfiles and Kubernetes manifests | STATUS, `deploy/README.md` | **Done 2026-11-24 except the GPU path**: three Dockerfiles (a CPU build of the engine image via a build argument), a no-GPU compose stack, Kubernetes base plus `kernel-graphs`, `mock` and `single-gpu` overlays, tests and a validation script; the images build, the compose stack runs with failover checked, and the `mock` overlay runs on a real `kind` cluster (service discovery, probes, security settings, self-healing, GPU Pending behavior all checked) | The GPU path stays untested until a container is run on a GPU machine; the router `/health` finding goes to item 12 |
+| 7 | Deployment: Dockerfiles and Kubernetes manifests | STATUS, `deploy/README.md` | **Done 2026-11-24 except the GPU path**: three Dockerfiles (a CPU build of the engine image via a build argument), a no-GPU compose stack, Kubernetes base plus `kernel-graphs`, `mock` and `single-gpu` overlays, tests and a validation script; the images build, the compose stack runs with failover checked, and the `mock` overlay runs on a real `kind` cluster (service discovery, probes, security settings, self-healing, GPU Pending behavior all checked) | The GPU path stays untested until a container is run on a GPU machine; the router `/health` finding is fixed (see item 12) |
 | 8 | What paging buys (raised by the independent review) | review, **D-023** | **Pre-registered (D-023); no run yet** | Run the block-size experiment at a binding memory budget |
 | 9 | Review findings | `docs/independent-review-2026-11-24.md`, `docs/second-review-2026-11-24.md` | Tracked there | Follow their status tables |
 | 10 | Cleanup of the shared benchmark machine | STATUS section 6, item 13 | Pending | Delete `~/pagedserve_work` after the last GPU work, and confirm the home directory is back to baseline |
