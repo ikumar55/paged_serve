@@ -4,6 +4,38 @@ Each entry records what was decided, why, what else was considered, and the **me
 measured-effect field stays "not yet measured" until a benchmark result file exists to cite; no
 estimates are recorded here as if they were results.
 
+## Summary of the entries (as of 2026-11-24; the entries below are the record)
+
+| Entry | Subject | Where it stands |
+| --- | --- | --- |
+| D-001 | Model | Llama-3.2-1B-Instruct (TinyLlama as ungated fallback); decided |
+| D-002 | Forward pass | plain PyTorch; bit-identical to Hugging Face in fp32 on CPU; the GPU contract was revised after measurement (D-019) |
+| D-003 | Attention path | gather first, kernels only after profiling; profiled: launch-bound at small batches, GPU-bound on a real length mix |
+| D-004 | Scheduler | built; equals Hugging Face on real weights, including forced preemptions (fp32) |
+| D-005 | Prefix cache | built; 89 to 92% hit rate on the shared-prefix workload, median time to first token 17 to 22% lower |
+| D-006 | Baselines | Hugging Face static batching and a pinned vLLM; measured on one RTX 5090 (D-019) |
+| D-007 | Router policies | four policies built; compared only on a mock fleet; `/health` fixed on 2026-11-24 after a Kubernetes test |
+| D-008 | Mock backend | built; placeholder timings, used for router, CI and deployment work |
+| D-009 to D-014 | Tooling, tolerances, one extension chosen later, forward-pass notes, reference pitfalls, load generator | decided and built; the extension (D-011) became the simulator (D-024) |
+| D-015 | Hugging Face baseline | measured on an RTX A6000 and again on the RTX 5090 |
+| D-016 | Determinism self-test | before every GPU measurement; caught a faulty GPU once (its results were retracted) |
+| D-017 | RTX 5060 Ti machine | the stack validated there; never benchmarked |
+| D-018 | Rented GPU | draft; not used (the Capsule machine of D-019 was used) |
+| D-019 | The benchmark machine and the three-way comparison | done: Hugging Face 9.0, this engine 14.2, vLLM 59.6 (32 sequences) and at least 82.6 (64 sequences) req/s at saturation |
+| D-020 | CUDA graphs | built on the kernel path; **strict bf16 gate failed** (outputs not hash-identical to the eager kernel); diagnostic 1.40 times at saturation; not a claim |
+| D-021 | Where the server loses capacity | the real length mix doubles the step cost, the cache costs under 1%, the server adds 19 to 31%; the gather arm hit a 997-request in-flight ceiling |
+| D-022 | Router on real replicas | planned; nothing run |
+| D-023 | What paging buys | planned; nothing run |
+| D-024 | Calibrated simulator | planned; nothing run |
+| D-025 | In-place decode-attention kernel | built; fp32 correct; **strict bf16 gate failed**; diagnostic 1.55 times at saturation (1.43 in a steady-state window); not a claim |
+| D-026 | Kernel's bf16 accuracy against fp32 | all four criteria met; criteria chosen after the fact |
+| D-027 | Graph path's bf16 accuracy against fp32 | all four criteria met; criteria chosen after the fact; a rerun to record the replay counts is pending |
+| D-028 | Engine-thread time with kernel and graphs | planned with predictions; accounting and report tool built; not measured |
+
+Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same-session vLLM comparison
+(D-030), the kernel microbenchmark (D-031) and generality on a second model (D-032); see
+`docs/roadmap.md`.
+
 ## Principles
 
 - **Correctness before speed.** Every optimization lands with a test showing that outputs did not

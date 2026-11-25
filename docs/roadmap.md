@@ -71,7 +71,8 @@ are estimates, not promises.
      commit id into every result manifest and environment capture (S2-11); find the cause of the
      gather arm's ConnectErrors from the existing records (S2-3); cut the README to a short summary
      with one table and the three caveats (S2-9); a one-page summary table at the top of
-     `decisions.md` (S2-16); build and CPU-test a sensitive bf16 accuracy tool, KL or perplexity on
+     `decisions.md` (S2-16, **done 2026-11-24**); the README cut to a short summary (S2-9, **done
+     2026-11-24**); build and CPU-test a sensitive bf16 accuracy tool, KL or perplexity on
      real text against fp32 and Hugging Face bf16 (S2-7); make the router's `/health` verify that at
      least one replica answers (it was optimistic until a request failed, found on `kind`): **done 2026-11-24**,
      with six tests; commit ids in results (S2-11): **done 2026-11-24** (env var, `COMMIT` file, Docker build

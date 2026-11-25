@@ -2,7 +2,34 @@
 
 A small LLM inference engine, written from scratch in Python and PyTorch, with a paged KV cache, continuous batching and prefix caching, plus a prefix-cache-aware router for multiple replicas.
 
-**Status: working and measured on one GPU; the first speed work is done and opt-in.** The engine, server, prefix cache, router and mock backend are built and tested on CPU. The engine has been run and benchmarked on one RTX 5090 against Hugging Face static batching and vLLM (D-019): in bf16 it delivers about 1.6 times the throughput of a tuned Hugging Face static-batching server, and at saturation vLLM delivers about 4 times what it does (about 60 against 14 req/s, paired over four seeds), and vLLM with CUDA graphs disabled is still about twice the engine. Profiling the decode step on the real mix of sequence lengths shows the saturated step is GPU-bound, not launch-bound: attention and the gather of cached keys and values are 84% of GPU time, and the padded batch does about 3.7 times the work it needs, so the first speed work was attention that reads the cache blocks in place, with its success criteria written in advance (D-025). Two changes followed, both **opt-in and off by default** (so every earlier result still reproduces): a Triton decode-attention kernel (`--paged-attention-kernel`, D-025) and CUDA graphs on top of it (`--cuda-graphs`, D-020). In labelled diagnostic runs (four workload seeds, paired, interleaved in one session) saturated throughput rose from about 14 to about 22 req/s with the kernel and to about 29 req/s with graphs, about 2.1 times in total (measured over a steady-state window instead of the whole run, the kernel's gain is 1.43 times, not 1.55: the gather path's runs hit a 997-request in-flight ceiling at the end). vLLM, measured in an earlier session, saturates at about 60 req/s with 32 sequences and delivered at least 83 with 64 sequences (a lower bound, the load generator was saturated); the engine runs 64, so the like-for-like gap is at least about 2.9 times, not 2.1, and a same-session matched comparison is still to be done. **Read that with the caveats:** the bf16 correctness gates fixed in advance for both were missed by a near-tie and are recorded as failed in the decision log; fp32 output is identical to Hugging Face (50 of 50 prompts, including preemptions and prefix-cache hits), and a later accuracy comparison against fp32 found both as accurate as the original path in bf16, but that standard was chosen after the fact (D-026, D-027). The router has only been exercised on a simulated fleet (mock backend), never on real replicas. [`docs/STATUS.md`](docs/STATUS.md) says what is built, how it was checked and what is next. Results land in `results/` with the hardware and library versions recorded next to every number (the box ran a `git archive`, so the commit is in the decision log, not in each file).
+**Status:** working and measured on one GPU. The engine, server, prefix cache, router and mock backend are built and tested on CPU (the router only against a simulated fleet, never real GPU replicas). Everything below is on one RTX 5090 with Llama-3.2-1B-Instruct in bf16; the full evidence is in [`docs/STATUS.md`](docs/STATUS.md) and [`docs/decisions.md`](docs/decisions.md).
+
+### Where it stands
+
+Delivered requests per second at saturation (offered above capacity), mean of four workload seeds:
+
+| System | req/s | What it is |
+| --- | ---: | --- |
+| Hugging Face static batching (its best setting) | 9.0 | the baseline most tutorials start from |
+| This engine, default gather path | 14.0 | paged KV cache, continuous batching, prefix cache |
+| + Triton decode-attention kernel (opt-in) | 21.6 | reads each sequence's blocks in place, no padding |
+| + CUDA graphs on top (opt-in) | 29.0 | replays the decode step as a graph |
+| vLLM, 32 sequences | 59.6 | measured in an earlier session |
+| vLLM, 64 sequences | at least 82.6 | a lower bound: the load generator was saturated |
+
+Profiling found the step GPU-bound on the real mix of sequence lengths (attention plus the gather were 84% of GPU time and the padded batch did 3.7 times the work it needed), which is why the kernel came first.
+
+### Read these numbers with three caveats
+
+1. **The speedups are labelled diagnostics, and two correctness gates were missed.** The bf16 gates fixed in advance for the kernel and for the graphs were missed by a near-tie and are recorded as failed (D-025, D-020). fp32 output is identical to Hugging Face (50 of 50 prompts, with preemptions and prefix-cache hits). Later accuracy comparisons against fp32 found both paths as accurate as the original in bf16, but those standards were chosen after the fact (D-026, D-027).
+2. **The comparison with vLLM is rough.** vLLM and Hugging Face were measured in an earlier session, not interleaved with the later runs, and vLLM was at 32 sequences while the engine runs 64. The engine is at least about 2.1 times (32 sequences) to about 2.9 times (64 sequences) behind vLLM. A same-session matched comparison is planned.
+3. **One GPU, one model, random-token prompts, four seeds, one run per cell.** The gather path hit a 997-request in-flight ceiling at the end of its runs, so the whole-run kernel gain of 1.55 times is 1.43 times in a steady-state window; the conclusions hold either way.
+
+### Deploying
+
+Dockerfiles, a compose file for a no-GPU demo and Kubernetes manifests are in [`deploy/`](deploy/README.md). They were validated offline and run: the images build, the mock stack runs under Docker Compose, and the mock overlay runs on a local `kind` cluster (service discovery, probes, security settings, self-healing and GPU scheduling behavior checked). The GPU path has never been run in a container.
+
+Reproduce, if you have an NVIDIA GPU: `make setup`, download the weights into `models/` yourself (they are licence-gated), then see `docs/gpu-runbook.md` and `docs/STATUS.md` section 5 for the benchmark commands. Results land in `results/` with the hardware and library versions recorded next to every number.
 
 ## Layout
 
@@ -70,9 +97,10 @@ Full blocks are cached by content and shared between requests with a common prom
 that off with `--no-prefix-caching`. The scheduler admits requests while blocks are free and, when
 the pool runs short, preempts the newest running request and recomputes it later. `/info` reports
 batch sizes, preemptions, block use and prefix-cache hits. Greedy decoding and token-id prompts
-only, as in the baseline. Benchmarked on one RTX 5090 (D-019). The attention path is the simple
-gather-based one: every step rebuilds contiguous keys and values from the blocks, which a profile
-shows is a large share of the GPU time at larger batches (D-003).
+only, as in the baseline. Benchmarked on one RTX 5090 (D-019). By default the attention path is the
+simple gather-based one: every step rebuilds contiguous keys and values from the blocks, which a
+profile shows is most of the GPU time on a real length mix (D-003, D-020); `--paged-attention-kernel`
+removes that step.
 
 `--backend mock` serves the same API with no model: the real scheduler and block pool, with the
 forward pass replaced by sleeps from a timing model (`--mock-*` options). It exists so the router,
@@ -112,7 +140,3 @@ python -m bench.loadgen run --url http://localhost:8000 --model MODEL --rate 4 -
 ```
 
 Design decisions, with the measured effect of each change, are tracked in [`docs/decisions.md`](docs/decisions.md).
-
-## Deploying
-
-Dockerfiles, a compose file for a no-GPU demo stack and Kubernetes manifests (base plus two overlays) are in [`deploy/`](deploy/README.md). They have been validated offline (hadolint, kubeconform, and tests that parse every argument list with the servers' real parsers) and run: the images build, the mock stack runs under Docker Compose, and the `mock` overlay runs on a local `kind` cluster (service discovery, probes, security settings, self-healing and the GPU scheduling behavior were checked). The GPU path has never been run, because no GPU was available for it. `deploy/README.md` says what is verified and what to try first on a GPU machine.
