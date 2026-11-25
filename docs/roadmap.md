@@ -75,7 +75,9 @@ are estimates, not promises.
      real text against fp32 and Hugging Face bf16 (S2-7); make the router's `/health` verify that at
      least one replica answers (it was optimistic until a request failed, found on `kind`): **done 2026-11-24**,
      with six tests; commit ids in results (S2-11): **done 2026-11-24** (env var, `COMMIT` file, Docker build
-     argument; seven tests).
+     argument; seven tests); the gather arm's ConnectError cause (S2-3): **done 2026-11-24**, in-flight
+     requests peak at exactly 997 (a 1,024 open-file limit, not confirmed), `bench/inflight.py`; the kernel's
+     steady-window gain is 1.43, not 1.55.
    - **Deployment (item 7), done offline 2026-11-24:** Dockerfiles for the engine server, the router and the load generator,
      and Kubernetes manifests (a Deployment with a GPU resource request, a Service, a router
      Deployment with the replicas as endpoints, config, probes on `/health`); validated offline
@@ -109,7 +111,7 @@ remains. If the machine stays unavailable, phase 2 can be done first.
 | 8 | What paging buys (raised by the independent review) | review, **D-023** | **Pre-registered (D-023); no run yet** | Run the block-size experiment at a binding memory budget |
 | 9 | Review findings | `docs/independent-review-2026-11-24.md`, `docs/second-review-2026-11-24.md` | Tracked there | Follow their status tables |
 | 10 | Cleanup of the shared benchmark machine | STATUS section 6, item 13 | Pending | Delete `~/pagedserve_work` after the last GPU work, and confirm the home directory is back to baseline |
-| 11 | Matched same-session vLLM comparison (second review S2-1, S2-2, S2-4, S2-5) | second review, **D-030 (to plan)** | Not planned yet | vLLM at 32 and 64 sequences, every system offered at least 1.5 times capacity, a load generator that is not the bottleneck, a length-bucketed gather arm; interleaved by seed in one session; after D-029 if that is triggered |
+| 11 | Matched same-session vLLM comparison (second review S2-1, S2-2, S2-4, S2-5) | second review, **D-030 (to plan)** | Not planned yet | vLLM at 32 and 64 sequences, every system offered at least 1.5 times capacity, a load generator that is not the bottleneck, a length-bucketed gather arm, **the open-file limit recorded and raised (`ulimit -n`) for every system** (the gather arm hit a 997-request ceiling), a steady-state window reported next to the whole-run figure; interleaved by seed in one session; after D-029 if that is triggered |
 | 12 | Credibility sweep (S2-3, S2-7, S2-9, S2-10, S2-11, S2-16, S2-18) | second review | Not started; phase 2, no machine needed | Push and CI, commit ids in results, ConnectError cause, README cut, decision-log summary table, a sensitive bf16 accuracy tool (KL or perplexity) |
 | 13 | Kernel microbenchmark (S2-12) | second review, **D-031 (to plan)** | Not planned yet | GB/s against the card's peak, comparison with PyTorch attention (and FlashInfer or flash-attn if they install), split-KV and autotuning tried; only if time remains |
 | 14 | Generality on a second model or GPU class with real text (S2-15) | second review, **D-032 (to plan)** | Not planned yet; stretch, phase 4 | Repeat the kernel-plus-graphs comparison on one more model, EOS-terminated lengths |

@@ -277,6 +277,14 @@ session.
     connection does not stop a sweep. `capsule exec` does not exit by itself: always wrap it in a
     timeout and run `capsule session endall` afterwards.
 
+15. **The default open-file limit (1,024 per process) caps a saturated server at about 997 requests
+    in flight.** The gather path's saturation runs hit it (170, 7, 153 and 82 of 1,920 requests failed
+    with `ConnectError` in the last seconds of the arrivals); the faster paths never did. Found from
+    the recorded results with `bench/inflight.py`; the limit itself was not read from the machine.
+    Record and raise it (`ulimit -n`) for every system in any saturation comparison. In a steady-state
+    window before the failures the kernel's gain over the gather path is 1.43 (1.33 to 1.54), against
+    the pre-registered whole-run 1.55 (D-025).
+
 ## 7. Suggested next steps, in order
 
 1. ~~**Router policy comparison on a mock fleet.**~~ **Done** (`bench/router_compare.py`, five

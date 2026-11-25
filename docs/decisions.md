@@ -1267,6 +1267,22 @@ estimates are recorded here as if they were results.
     sequences** (82.6 req/s, one seed, a lower bound, D-019), which is the engine's own setting and
     so the fairer comparison. (Correction, added the same evening after the second review: the
     first version of this paragraph quoted only the 32-sequence figure.)
+  - *Why the gather arm lost requests, and how much it matters (2026-11-24, from the recorded results
+    with `bench/inflight.py`).* In all four gather runs the number of requests in flight peaks at
+    **exactly 997**, and the first `ConnectError` happens when that value is reached (54.0 to 59.2 s
+    into the run); the kernel runs peak at 630 to 737, the eager-kernel runs at 680 to 737 and the
+    graph runs at 147 to 246, with no failures. A ceiling that exact is what a limit of 1,024 open
+    files per process (the Linux default) would produce with about 27 descriptors already in use;
+    this is **strongly supported but not confirmed** (the limit was not read from the machine).
+    Consequence: only the gather path reached the ceiling, so its whole-run figures include the
+    last seconds of failed arrivals and a drain. In a steady-state window before any failure (15
+    to 50 s, completed requests per second) the arms deliver gather 15.05, kernel 21.38, eager
+    21.24 and graphs 30.42 req/s, so the paired kernel over gather ratio is **1.43 (1.33 to 1.54)**
+    against the whole-run 1.55 (1.42 to 1.68), and graphs over eager is 1.43 (1.36 to 1.50)
+    against 1.40. The conclusions stand (the steady-window ratios also clear the D-025 (c) bars of
+    mean 1.30 and every seed 1.15, lowest 1.33), but **the pre-registered whole-run figure flatters
+    the kernel by about 0.1**, and any comparison at saturation must record the open-file limit and
+    raise it (`ulimit -n`) for every system.
   - **Still not a claim:** gate (a)(ii) failed (bf16 outputs not hash-identical to the eager
     kernel path), each seed was run once per variant, one GPU, one model, one workload shape.
 - **Pre-stated interpretation.** (b) passes and (c) fails: decode is not the bottleneck at
@@ -1667,8 +1683,7 @@ estimates are recorded here as if they were results.
     same ratios). Inter-token latency p50 fell from 25 to 28.5 ms to 15.4 to 15.9 ms. The kernel
     runs completed all 1,920 requests every time; the gather runs completed 1,750, 1,913, 1,767
     and 1,838 (the rest did not finish: the load generator logged a `ConnectError` for 170, 7, 153 and 82 of
-    them on seeds 0 to 3, found by the second review; why the server refused those connections
-    under the gather path's overload has not been investigated). The gather runs' throughput
+    them on seeds 0 to 3, found by the second review; the cause is in the bullet below). The gather runs' throughput
     (13.1 to 15.2) matches the earlier engine saturation figures (14.2, range 13.2 to 16.0), so
     this session was consistent with the earlier ones.
   - *Against the predictions and reading fixed beforehand:* the step is 38 to 60% shorter
