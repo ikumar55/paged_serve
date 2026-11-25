@@ -24,7 +24,7 @@ estimates are recorded here as if they were results.
 | D-019 | The benchmark machine and the three-way comparison | done: Hugging Face 9.0, this engine 14.2, vLLM 59.6 (32 sequences) and at least 82.6 (64 sequences) req/s at saturation |
 | D-020 | CUDA graphs | built on the kernel path; **strict bf16 gate failed** (outputs not hash-identical to the eager kernel); diagnostic 1.40 times at saturation; not a claim |
 | D-021 | Where the server loses capacity | the real length mix doubles the step cost, the cache costs under 1%, the server adds 19 to 31%; the gather arm hit a 997-request in-flight ceiling |
-| D-022 | Router on real replicas | planned; nothing run |
+| D-022 | Router on real replicas | planned with an amendment; harness option `--backend llama` and the session script built and CPU-tested; nothing run |
 | D-023 | What paging buys | planned; nothing run |
 | D-024 | Calibrated simulator | planned; nothing run |
 | D-025 | In-place decode-attention kernel | built; fp32 correct; **strict bf16 gate failed**; diagnostic 1.55 times at saturation (1.43 in a steady-state window); not a claim |
@@ -1466,6 +1466,20 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same
   (real `engine.server` replicas from `--model-dir`, the result labelled as real replicas sharing one
   GPU and one CPU, the mock timing section absent); the mock path and every recorded mock result are
   unchanged.
+- **Build log (2026-11-25, CPU only; nothing measured).** `bench/router_compare.py` has `--backend
+  llama --model-dir <weights> [--dtype] [--warmup-requests N]`: real `engine.server` replicas are
+  started with the fleet's batch size, block size and cache size (and no mock flags), each fresh
+  replica gets the warm-up requests directly (`warm_up_replicas`, an 8-token prompt, shorter than a
+  block) before the fleet is handed over, the request model name is the weights directory's name, and
+  the result is labelled `REAL ENGINE REPLICAS SHARING ONE GPU AND ONE CPU` with
+  `shared_gpu_confound` and `warmup_requests` recorded, no mock timing section and no `calibrated`
+  flag. The recorded command line and the fleet section keep only the weights directory's name (a
+  path can carry an account name). The mock path and its 20 existing tests are unchanged. 14 new
+  tests (the config checks, the real replica command, the warm-up on thread replicas and on real
+  replica processes, the labelling and the path redaction); 12 deliberate breakages of the new code,
+  all caught after one survivor (the warm-up was never exercised by the fleet launcher) led to a test
+  on real replica processes. `deploy/gpu_d022.sh` is the session script (16 runs, about one hour, the
+  self-test before and after); it has **not been run**.
 - **Measured effect:** none yet.
 
 ### D-023 What paging buys: concurrency at a fixed memory budget (PLANNED, criteria fixed in advance)

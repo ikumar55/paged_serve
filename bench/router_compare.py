@@ -1,4 +1,4 @@
-"""Compare the router policies (D-007) on a fleet of mock replicas under a shared-prefix workload.
+"""Compare the router policies (D-007) on a fleet of replicas under a shared-prefix workload.
 
     python -m bench.router_compare --out results/router-compare-mock-a.json \\
         --replicas 4 --rate 30 --num-requests 300 --seeds 0,1,2 \\
@@ -10,6 +10,13 @@
 whose length is a placeholder. The results therefore describe the routing policies and the plumbing
 (cache hit rates, balance, queueing under these made-up step times), and say nothing about a GPU.
 Every output file says so.
+
+**Real replicas (D-022).** ``--backend llama --model-dir <weights>`` starts real ``engine.server``
+replicas instead (bf16 by default). They run as separate processes on the one GPU and CPU of the
+machine, together with the router and the load generator: that sharing is a confound, and the result
+files say so instead of the mock banner. Each fresh replica first receives a few tiny requests
+directly (``--warmup-requests``, shorter than a block, so nothing enters its prefix cache) to
+initialise CUDA before the run.
 
 Method. For each workload seed, every variant gets a fresh fleet (new replica processes, so no
 cache carries over, and a new router) and the *same* requests (a digest of the workload is stored
@@ -58,6 +65,14 @@ BANNER = (
     "MOCK BACKEND, UNCALIBRATED TIMING. These numbers describe the routing policies and the "
     "plumbing on a CPU, with placeholder step times (D-008). They are not GPU performance and "
     "must not be quoted as such."
+)
+
+WARMUP_PROMPT = tuple(range(1000, 1008))  # 8 tokens: shorter than a block of 16, so no cache entry
+
+BANNER_REAL = (
+    "REAL ENGINE REPLICAS SHARING ONE GPU AND ONE CPU. The replicas, the router and the load "
+    "generator run on the same machine, so latencies include contention between the replicas "
+    "(D-022). One GPU, one model, a synthetic shared-prefix workload."
 )
 
 
@@ -115,10 +130,25 @@ class FleetConfig:
     load_cap: int = 16
     poll_interval_s: float = 0.5  # precise-prefix: how often the router reads each /cache
     time_scale: float = 1.0  # multiplies every mock step time; 0 makes the mock instantaneous
+    backend: str = "mock"  # "mock" (D-008) or "llama" (real replicas, D-022)
+    model_dir: str | None = None  # the weights directory, for the llama backend only
+    dtype: str = "bfloat16"  # the llama backend's weight and cache dtype
+    warmup_requests: int = 0  # tiny direct requests per fresh replica before the run
 
     def __post_init__(self) -> None:
         if self.replicas < 1:
             raise ValueError("replicas must be at least 1")
+        if self.backend not in ("mock", "llama"):
+            raise ValueError("backend must be 'mock' or 'llama'")
+        if self.backend == "llama" and not self.model_dir:
+            raise ValueError("the llama backend needs --model-dir")
+        if self.warmup_requests < 0:
+            raise ValueError("warmup_requests must not be negative")
+
+    @property
+    def model_name(self) -> str:
+        """The name sent in each request: the weights directory's name, or ``mock``."""
+        return Path(self.model_dir).name if self.backend == "llama" and self.model_dir else "mock"
 
 
 @dataclass(frozen=True)
@@ -149,6 +179,15 @@ def _free_ports(count: int) -> list[int]:
 
 
 def replica_command(port: int, fleet: FleetConfig) -> list[str]:
+    if fleet.backend == "llama":
+        return [
+            sys.executable, "-m", "engine.server",
+            "--model-dir", str(fleet.model_dir), "--dtype", fleet.dtype,
+            "--port", str(port),
+            "--max-batch-size", str(fleet.max_batch_size),
+            "--block-size", str(fleet.block_size),
+            "--kv-cache-gb", f"{fleet.kv_cache_gb:g}",
+        ]  # fmt: skip
     return [
         sys.executable, "-m", "engine.server", "--backend", "mock",
         "--port", str(port),
@@ -196,6 +235,26 @@ def _wait_ready(
         time.sleep(0.2)
 
 
+def warm_up_replicas(urls: Sequence[str], count: int, model: str, timeout_s: float) -> None:
+    """Send ``count`` tiny requests straight to every replica (not through the router).
+
+    The prompt is 8 tokens, shorter than a block, so nothing enters a replica's prefix cache; the
+    point is to pay for CUDA initialisation and kernel selection before the measured run, not
+    during its first requests. Raises ``FleetError`` if a replica does not answer.
+    """
+    body = {"model": model, "prompt": list(WARMUP_PROMPT), "max_tokens": 4, "temperature": 0}
+    for url in urls:
+        for _ in range(count):
+            try:
+                response = httpx.post(f"{url}/v1/completions", json=body, timeout=timeout_s)
+            except httpx.HTTPError as error:
+                raise FleetError(
+                    f"a replica did not answer its warm-up: {type(error).__name__}"
+                ) from error
+            if not response.is_success:
+                raise FleetError(f"a replica refused its warm-up (HTTP {response.status_code})")
+
+
 @contextmanager
 def subprocess_fleet(
     variant: Variant, fleet: FleetConfig, *, startup_timeout_s: float = 90.0
@@ -228,6 +287,10 @@ def subprocess_fleet(
             [f"{url}/info" for url in replica_urls] + [f"{router_url}/health"],
             startup_timeout_s,
         )
+        if fleet.warmup_requests:
+            warm_up_replicas(
+                replica_urls, fleet.warmup_requests, fleet.model_name, startup_timeout_s
+            )
         yield FleetEndpoints(router_url, replica_urls)
     finally:
         for process in reversed(processes):  # router first, so it stops before its replicas
@@ -323,13 +386,15 @@ def summarize_run(
     }
 
 
-async def _drive(url: str, specs: Sequence[RequestSpec], timeout_s: float) -> list[RequestResult]:
+async def _drive(
+    url: str, specs: Sequence[RequestSpec], timeout_s: float, model: str = "mock"
+) -> list[RequestResult]:
     async with httpx.AsyncClient(
         base_url=url,
         timeout=None,
         limits=httpx.Limits(max_connections=None, max_keepalive_connections=None),
     ) as client:
-        return await run_workload(specs, client, "mock", timeout_s=timeout_s)
+        return await run_workload(specs, client, model, timeout_s=timeout_s)
 
 
 def run_variant(
@@ -350,7 +415,7 @@ def run_variant(
     }
     try:
         with start_fleet(variant, fleet) as endpoints:
-            results = asyncio.run(_drive(endpoints.router_url, specs, timeout_s))
+            results = asyncio.run(_drive(endpoints.router_url, specs, timeout_s, fleet.model_name))
             response = httpx.get(
                 f"{endpoints.router_url}/info", params={"fleet": "true"}, timeout=30
             )
@@ -448,16 +513,21 @@ def _cell(runs: Sequence[dict[str, Any]], column: Column) -> str:
     return "n/a" if not values else spread(values, scale, digits)
 
 
+def _fleet_kind(doc: dict[str, Any]) -> str:
+    return "real-engine fleet on one shared GPU" if doc.get("backend") == "llama" else "mock fleet"
+
+
 def format_table(doc: dict[str, Any]) -> str:
     """The Markdown report for a result document."""
     runs = doc["runs"]
     seeds = doc["seeds"]
     lines = [
-        f"# Router policy comparison, mock fleet ({doc['label'] or 'unlabelled'})",
+        f"# Router policy comparison, {_fleet_kind(doc)} ({doc['label'] or 'unlabelled'})",
         "",
-        f"**{BANNER}**",
+        f"**{doc.get('banner', BANNER)}**",
         "",
-        f"{doc['fleet']['replicas']} mock replicas, workload seeds {seeds}, "
+        f"{doc['fleet']['replicas']} {'real engine' if doc.get('backend') == 'llama' else 'mock'} "
+        f"replicas, workload seeds {seeds}, "
         f"{doc['workload']['num_requests']} requests per run at {doc['workload']['rate']:g} req/s. "
         "Each cell is the mean over seeds with the minimum to maximum in brackets; with this few "
         "seeds the brackets are a spread, not a confidence interval.",
@@ -507,18 +577,28 @@ def format_table(doc: dict[str, Any]) -> str:
 
 def sanitize_argv(argv: Sequence[str]) -> list[str]:
     """The command line without the output path (an absolute path carries the account name, and
-    where the file went says nothing about the result) and with the home directory hidden."""
+    where the file went says nothing about the result), with the weights directory reduced to its
+    name (a path to it can carry the account name too) and with the home directory hidden."""
     clean: list[str] = []
     redact_next = False
+    basename_next = False
     for arg in argv:
         if redact_next:
             clean.append("<redacted>")
             redact_next = False
+        elif basename_next:
+            clean.append(Path(arg.replace("\\", "/")).name)
+            basename_next = False
         elif arg == "--out":
             clean.append(arg)
             redact_next = True
+        elif arg == "--model-dir":
+            clean.append(arg)
+            basename_next = True
         elif arg.startswith("--out="):
             clean.append("--out=<redacted>")
+        elif arg.startswith("--model-dir="):
+            clean.append("--model-dir=" + Path(arg.split("=", 1)[1].replace("\\", "/")).name)
         else:
             clean.append(redact_home(arg))
     return clean
@@ -539,33 +619,63 @@ def build_document(
     env.pop("command")  # that is the env_capture command, not this one
     workload_dict = workload.to_dict()
     workload_dict.pop("seed")  # one per run
-    return {
+    real = fleet.backend == "llama"
+    fleet_dict = asdict(fleet)
+    fleet_dict.pop("model_dir")  # a path can carry an account name: record the model's name only
+    if real:
+        fleet_dict["model"] = fleet.model_name
+    cold = (
+        "No warm-up of the prefix caches: every policy starts with cold caches and pays for its "
+        "first sight of each prefix."
+    )
+    same_workload = (
+        "Fresh replica and router processes for every run; variants of a seed receive the "
+        "identical workload (see workload_digest)."
+    )
+    shape = (
+        "The shared-prefix workload shape (groups, length, skew) is a modelling choice, not a "
+        "measurement of real traffic."
+    )
+    document: dict[str, Any] = {
         "type": "router-policy-comparison",
         "schema_version": SCHEMA_VERSION,
-        "backend": "mock",
-        "calibrated": False,
-        "banner": BANNER,
+        "backend": fleet.backend,
+        "banner": BANNER_REAL if real else BANNER,
         "label": label,
         "command": " ".join(["python", "-m", "bench.router_compare", *argv]),
         "env": env,
-        "fleet": asdict(fleet),
+        "fleet": fleet_dict,
         "workload": workload_dict,
         "seeds": list(seeds),
-        "mock_timing": TimingModel(time_scale=fleet.time_scale).to_dict(),
         "variant_labels": [v.label for v in variants],
         "runs": runs,
-        "notes": [
+    }
+    if real:
+        document["shared_gpu_confound"] = True
+        document["warmup_requests"] = fleet.warmup_requests
+        document["notes"] = [
+            "Real engine replicas started as separate processes on one GPU: the replicas, the "
+            "router and the load generator share the GPU and the CPU, so latencies include "
+            "contention between the replicas.",
+            cold,
+            f"Each fresh replica first received {fleet.warmup_requests} tiny direct requests of 8 "
+            "tokens (shorter than a block, so nothing entered its prefix cache) to initialise "
+            "CUDA; their prompt tokens are counted in the replicas' totals and are not subtracted.",
+            same_workload,
+            shape,
+        ]
+    else:
+        document["calibrated"] = False
+        document["mock_timing"] = TimingModel(time_scale=fleet.time_scale).to_dict()
+        document["notes"] = [
             "Placeholder mock timing (see mock_timing), not calibrated against any real run.",
-            "No warm-up: every policy starts with cold caches and pays for its first sight of "
-            "each prefix.",
-            "Fresh replica and router processes for every run; variants of a seed receive the "
-            "identical workload (see workload_digest).",
+            cold,
+            same_workload,
             f"Run on {env['os']['system']}: sleeps and scheduling here are not those of a "
             "Linux box, and the replicas, router and load generator share one machine.",
-            "The shared-prefix workload shape (groups, length, skew) is a modelling choice, not a "
-            "measurement of real traffic.",
-        ],
-    }
+            shape,
+        ]
+    return document
 
 
 def write_outputs(json_path: Path, markdown_path: Path, doc: dict[str, Any]) -> None:
@@ -612,6 +722,21 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     fleet.add_argument("--poll-interval", type=float, default=defaults.poll_interval_s)
     fleet.add_argument("--mock-time-scale", type=float, default=defaults.time_scale)
     fleet.add_argument("--startup-timeout", type=float, default=90.0)
+    fleet.add_argument(
+        "--backend",
+        choices=("mock", "llama"),
+        default=defaults.backend,
+        help="mock: placeholder timings (D-008); llama: real engine replicas on this machine's "
+        "GPU (D-022; needs --model-dir)",
+    )
+    fleet.add_argument("--model-dir", help="weights directory, for --backend llama")
+    fleet.add_argument("--dtype", default=defaults.dtype, help="--backend llama only")
+    fleet.add_argument(
+        "--warmup-requests",
+        type=int,
+        default=defaults.warmup_requests,
+        help="tiny direct requests per fresh replica before the run (D-022 uses 2)",
+    )
     load = parser.add_argument_group("workload (as bench.loadgen)")
     load.add_argument("--rate", type=float, default=30.0, help="fleet-wide arrivals per second")
     load.add_argument("--num-requests", type=int, default=300)
@@ -653,6 +778,10 @@ def main(argv: Sequence[str] | None = None, *, start_fleet: StartFleet | None = 
             args.load_cap,
             args.poll_interval,
             args.mock_time_scale,
+            backend=args.backend,
+            model_dir=args.model_dir,
+            dtype=args.dtype,
+            warmup_requests=args.warmup_requests,
         )
         workload = WorkloadConfig(
             rate=args.rate,

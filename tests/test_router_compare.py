@@ -7,12 +7,17 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import torch
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from bench.client import RequestResult
 from bench.router_compare import (
     BANNER,
+    BANNER_REAL,
+    WARMUP_PROMPT,
     FleetConfig,
     FleetEndpoints,
     FleetError,
@@ -29,6 +34,7 @@ from bench.router_compare import (
     spread,
     subprocess_fleet,
     summarize_run,
+    warm_up_replicas,
     workload_digest,
     write_outputs,
 )
@@ -40,6 +46,7 @@ from engine.scheduler import Scheduler
 from router.app import create_router_app
 from router.policies import DEFAULT_MAX_ENTRIES, make_policy
 from tests.fake_server import UvicornServer
+from tests.test_router_app import free_port
 
 BLOCK = 4
 
@@ -476,3 +483,153 @@ def test_the_real_fleet_of_processes_runs_a_variant_with_its_memory_limit() -> N
     stats = summary["policy_stats"]
     # The router really received --max-entries: it remembers at most that many chunks.
     assert 0 < stats["entries"] <= 5
+
+
+# -- real replicas (D-022): the llama backend, the warm-up and the labelling ----------------
+
+
+def llama_fleet(**overrides: Any) -> FleetConfig:
+    fields: dict[str, Any] = {
+        "replicas": 2,
+        "block_size": BLOCK,
+        "backend": "llama",
+        "model_dir": "/models/Llama-x",
+    }
+    return FleetConfig(**{**fields, **overrides})
+
+
+def test_the_fleet_config_checks_the_backend_settings() -> None:
+    assert FleetConfig().backend == "mock" and FleetConfig().model_name == "mock"
+    assert llama_fleet().model_name == "Llama-x"
+    with pytest.raises(ValueError, match="model-dir"):
+        FleetConfig(backend="llama")
+    with pytest.raises(ValueError, match="backend"):
+        FleetConfig(backend="gpt")
+    with pytest.raises(ValueError, match="warmup"):
+        FleetConfig(warmup_requests=-1)
+
+
+def test_the_llama_replica_command_starts_a_real_engine_server() -> None:
+    fleet = llama_fleet(max_batch_size=5, kv_cache_gb=0.5, dtype="float32")
+    command = replica_command(1234, fleet)
+
+    def value(flag: str) -> str:
+        return command[command.index(flag) + 1]
+
+    assert command[1:3] == ["-m", "engine.server"]
+    assert value("--model-dir") == "/models/Llama-x" and value("--dtype") == "float32"
+    assert value("--port") == "1234" and value("--max-batch-size") == "5"
+    assert value("--block-size") == str(BLOCK) and value("--kv-cache-gb") == "0.5"
+    assert "--backend" not in command and "--mock-time-scale" not in command
+
+
+def start_thread_replicas(count: int) -> tuple[ExitStack, list[str], list[Scheduler]]:
+    stack = ExitStack()
+    urls, schedulers = [], []
+    for _ in range(count):
+        model = MockModel(timing=TimingModel(time_scale=0))
+        pool = KVPool(model.cfg, 300, BLOCK, torch.float32, "cpu")
+        scheduler = Scheduler(model, pool, max_batch_size=8)
+        urls.append(
+            stack.enter_context(UvicornServer(server.create_app(scheduler, [], model_id="m")))
+        )
+        schedulers.append(scheduler)
+    return stack, urls, schedulers
+
+
+def test_the_warm_up_goes_straight_to_every_replica_the_requested_number_of_times() -> None:
+    stack, urls, schedulers = start_thread_replicas(3)
+    with stack:
+        warm_up_replicas(urls, 2, "m", timeout_s=10)
+        assert [s.prefills for s in schedulers] == [2, 2, 2]
+        warm_up_replicas(urls, 0, "m", timeout_s=10)  # none asked, none sent
+        assert [s.prefills for s in schedulers] == [2, 2, 2]
+
+
+def test_the_warm_up_prompt_is_shorter_than_a_real_block() -> None:
+    """So that it leaves nothing in a replica's prefix cache (the real block is 16 tokens)."""
+    assert len(WARMUP_PROMPT) < FleetConfig().block_size
+
+
+def test_a_replica_that_cannot_be_warmed_up_is_a_fleet_error() -> None:
+    dead = f"http://127.0.0.1:{free_port()}"
+    with pytest.raises(FleetError, match="did not answer"):
+        warm_up_replicas([dead], 1, "m", timeout_s=2)
+    app = FastAPI()
+
+    @app.post("/v1/completions")
+    async def refuse() -> JSONResponse:
+        return JSONResponse({"error": "no"}, status_code=503)
+
+    with UvicornServer(app) as refusing, pytest.raises(FleetError, match="refused"):
+        warm_up_replicas([refusing], 1, "m", timeout_s=5)
+
+
+def test_the_real_replica_result_is_labelled_real_and_leaks_no_path(tmp_path: Path) -> None:
+    out = tmp_path / "cmp.json"
+    path = "/home/alice/models/Llama-x"
+    assert run_main(out, "--backend", "llama", "--model-dir", path, "--warmup-requests", "2") == 0
+    doc = json.loads(out.read_text())
+    text = (tmp_path / "cmp.md").read_text()
+
+    assert doc["backend"] == "llama" and doc["banner"] == BANNER_REAL
+    assert doc["shared_gpu_confound"] is True and doc["warmup_requests"] == 2
+    assert "mock_timing" not in doc and "calibrated" not in doc
+    assert doc["fleet"]["model"] == "Llama-x" and "model_dir" not in doc["fleet"]
+    assert text.startswith("# Router policy comparison, real-engine fleet on one shared GPU")
+    assert text.count(BANNER_REAL) == 1 and BANNER not in text and "mock" not in text.lower()
+    assert "2 real engine replicas" in text
+    assert any("share the GPU and the CPU" in note for note in doc["notes"])
+    assert any("2 tiny direct requests" in note for note in doc["notes"])
+    assert "alice" not in out.read_text() and "alice" not in text  # the path is not recorded
+    assert "--model-dir Llama-x" in doc["command"]
+
+
+def test_the_mock_result_is_unchanged_by_the_new_fields(tmp_path: Path) -> None:
+    out = tmp_path / "cmp.json"
+    assert run_main(out) == 0
+    doc = json.loads(out.read_text())
+    assert (
+        doc["backend"] == "mock" and doc["calibrated"] is False and "shared_gpu_confound" not in doc
+    )
+    assert doc["fleet"]["backend"] == "mock" and doc["fleet"]["warmup_requests"] == 0
+    assert "model_dir" not in doc["fleet"] and "mock" in (tmp_path / "cmp.md").read_text().lower()
+
+
+def test_the_llama_backend_without_weights_is_a_usage_error(tmp_path: Path) -> None:
+    assert run_main(tmp_path / "cmp.json", "--backend", "llama") == 2
+    assert not (tmp_path / "cmp.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        (["--model-dir", "/home/alice/models/Llama-x"], ["--model-dir", "Llama-x"]),
+        (["--model-dir=/home/alice/models/Llama-x"], ["--model-dir=Llama-x"]),
+        (["--model-dir", "C:\\Users\\alice\\models\\Llama-x"], ["--model-dir", "Llama-x"]),
+        (["--out", "/home/alice/r.json", "--seeds", "0"], ["--out", "<redacted>", "--seeds", "0"]),
+    ],
+)
+def test_the_recorded_command_line_names_the_model_not_its_path(
+    given: list[str], expected: list[str]
+) -> None:
+    assert sanitize_argv(given) == expected
+
+
+def test_the_subprocess_fleet_warms_every_replica_up_before_it_yields() -> None:
+    """Real replica processes (the mock backend here, as there are no weights): each must already
+    have admitted the warm-up requests, 2 x 8 prompt tokens, when the fleet is handed over."""
+    fleet = small_fleet(replicas=2, warmup_requests=2)
+    with subprocess_fleet(Variant("round-robin"), fleet, startup_timeout_s=60) as endpoints:
+        totals = [
+            httpx.get(f"{url}/info", timeout=10).json()["stats"]["prefix_prompt_tokens"]
+            for url in endpoints.replica_urls
+        ]
+        assert totals == [16, 16]
+    with subprocess_fleet(
+        Variant("round-robin"), small_fleet(replicas=2), startup_timeout_s=60
+    ) as cold:
+        assert [
+            httpx.get(f"{url}/info", timeout=10).json()["stats"]["prefix_prompt_tokens"]
+            for url in cold.replica_urls
+        ] == [0, 0]
