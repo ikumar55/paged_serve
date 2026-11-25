@@ -2031,6 +2031,27 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same
 - **Limits stated now:** one model, one GPU, text from this repository (not a standard benchmark such as
   WikiText), 128 teacher-forced steps per window (the contexts are short compared with the 1,000-token
   contexts of the speed runs), a single batch composition per path.
+- **Amendment 1 (2026-11-25, before any code or result exists; the criteria's limits, predictions and
+  readings are unchanged).** Two points of the plan are made precise. (a) *Text volume.* 200 windows of
+  256 tokens need 51,000 tokens, about 200 KB of English and code; "about 100 KB" could not give 200
+  windows that do not overlap, and overlapping windows would make the bootstrap over windows too
+  optimistic. The text is therefore about 270 KB from this fixed list, concatenated in this order with
+  line endings normalised to LF: `docs/decisions.md`, `docs/STATUS.md`, `README.md`,
+  `deploy/README.md`, `engine/scheduler.py`, `engine/model.py`, `router/app.py` (prose, tables and
+  code); the tool records the hash of the normalised text. The token stream is cut into aligned slices
+  of 255 tokens, 200 slices are sampled without replacement with a fixed seed (so no two windows
+  overlap), and each window is the beginning-of-text token followed by its slice, 256 tokens. The first
+  128 are the prompt; the 127 decode steps feed tokens 128 to 254 and predict tokens 129 to 255 (25,400
+  positions per variant). The prediction of token 128 comes from the prompt's prefill and is not a
+  decode-path position. (b) *Met, inconclusive, failed.* Each criterion has a limit L (the plan's number)
+  and a confirmation bound B on the upper end of its 95% bootstrap interval (2,000 resamples of windows,
+  fixed seed): (i) ratio of mean KL to the gather path's, L 1.10, B 1.25; (ii) absolute relative
+  difference of perplexity from the gather path's, L 0.002, B 0.003; (iii) ratio of mean KL to Hugging
+  Face bf16's, L 2.0, B 2.5; (iv) mean KL from Hugging Face fp32, L 1e-6, B 2e-6, and absolute relative
+  perplexity difference, L 1e-4, B 2e-4. **Met:** the point estimate is at most L and the interval's
+  upper end at most B. **Inconclusive:** the point estimate is at most L but the upper end exceeds B.
+  **Failed:** the point estimate exceeds L. The inconclusive reading is the plan's: widen to 400
+  windows once, with the same limits.
 - **Time box:** about half a day of work and one short GPU session (it can share the D-028 session).
 - **Measured effect:** none yet.
 
