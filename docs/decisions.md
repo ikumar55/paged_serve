@@ -31,7 +31,7 @@ estimates are recorded here as if they were results.
 | D-026 | Kernel's bf16 accuracy against fp32 | all four criteria met; criteria chosen after the fact |
 | D-027 | Graph path's bf16 accuracy against fp32 | all four criteria met; criteria chosen after the fact; a rerun to record the replay counts is pending |
 | D-028 | Engine-thread time with kernel and graphs | planned with predictions; accounting and report tool built; not measured |
-| D-033 | A sensitive bf16 accuracy test on real text (KL and perplexity, Hugging Face fp32 as the independent truth) | planned with criteria and predictions; nothing built or run |
+| D-033 | A sensitive bf16 accuracy test on real text (KL and perplexity, Hugging Face fp32 as the independent truth) | planned with criteria and predictions; tool built and CPU-tested (25 tests, 13 breakages caught); not run on the real model |
 
 Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same-session vLLM comparison
 (D-030), the kernel microbenchmark (D-031) and generality on a second model (D-032); see
@@ -1982,7 +1982,7 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same
 
 ### D-033 A sensitive bf16 accuracy test on real text, against an independent reference (PLANNED, criteria fixed before any code or run)
 
-- **Status:** planned 2026-11-24; **nothing is built or run.** Follows from the second review
+- **Status:** planned 2026-11-24; the tool was built on 2026-11-25 (see the build log); **not run on the real model.** Follows from the second review
   (S2-7), which said that D-026 and D-027's metric has low power and uses the engine's own fp32 path
   as the truth.
 - **What was wrong with the earlier instrument.** D-026 and D-027 compare the mean of the maximum
@@ -2052,6 +2052,29 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same
   upper end at most B. **Inconclusive:** the point estimate is at most L but the upper end exceeds B.
   **Failed:** the point estimate exceeds L. The inconclusive reading is the plan's: widen to 400
   windows once, with the same limits.
+- **Amendment 2 (2026-11-25, before any result exists).** Measured with the real tokenizer, the 7
+  files of amendment 1 are 275 KB and 73,476 tokens: 288 windows are available, enough for the 200 of
+  the plan but **not for the 400-window widening** the interpretation allows (400 windows need 102,000
+  tokens). So that the fallback exists, the widening run uses an extended text set, the 7 files
+  plus `docs/independent-review-2026-11-24.md`, `docs/second-review-2026-11-24.md`,
+  `docs/gpu-runbook.md`, `bench/loadgen.py`, `bench/sweep.py`, `bench/runner.py` and
+  `bench/scheduler_eval.py` (390 KB, 103,229 tokens, 404 windows), selected with `--text-set
+  extended`; its text hash is recorded like the other's. Nothing else changes: the same limits, bounds,
+  seed and rules.
+- **Build log (2026-11-25, CPU only).** `bench/kl_perplexity.py` is built: the fixed text and its
+  hash, non-overlapping windows, Hugging Face fp32 (truth) and bf16 (yardstick) through
+  `logits_to_keep` (confirmed present in the installed transformers 5.23), the engine variants reused
+  from `bench/bf16_logit_error.py` (fp32 gather, fp32 kernel, bf16 gather, bf16 kernel, bf16 graphs,
+  fp32 graphs, with 7 rows of padding in the graph bucket), teacher-forced decode steps on the real
+  text, per-position KL, NLL and top-1, and the bootstrap evaluation with the three-state verdicts of
+  amendment 1. 25 tests (a tiny model, the float64 reference in place of the kernel and a stand-in
+  for Hugging Face; a deliberately broken attention is detected end to end); 13 deliberate
+  breakages of the tool (KL direction, shifted targets, shifted reference positions, the model's own
+  token fed instead of the text, overlapping windows, state left between chunks, the verdict
+  rules, the wrong yardstick for (iii), skipped sanity check, and others), all caught after two
+  survivors led to a simplification and a stronger test. **Not run on the real model:** this laptop
+  has 15.7 GB of memory, short of the roughly 15 GB the four model copies need; the session script
+  `deploy/gpu_d033.sh` is written and waits for the machine.
 - **Time box:** about half a day of work and one short GPU session (it can share the D-028 session).
 - **Measured effect:** none yet.
 
