@@ -32,9 +32,10 @@ estimates are recorded here as if they were results.
 | D-027 | Graph path's bf16 accuracy against fp32 | all four criteria met; criteria chosen after the fact; a rerun to record the replay counts is pending |
 | D-028 | Engine-thread time with kernel and graphs | planned with predictions; accounting and report tool built; not measured |
 | D-033 | A sensitive bf16 accuracy test on real text (KL and perplexity, Hugging Face fp32 as the independent truth) | planned with criteria and predictions; tool built and CPU-tested (25 tests, 13 breakages caught); not run on the real model |
+| D-030 | Matched same-session comparison with vLLM | planned 2026-11-25 with arms, validity rules, predictions and how the ratio may be stated; a sharded load generator to build first; nothing built or run |
+| D-031 | Is the decode-attention kernel the lever? (isolated GB/s, other implementations, split-KV) | planned 2026-11-25 with predictions and a lever test; optional, after D-030; nothing built or run |
 
-Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same-session vLLM comparison
-(D-030), the kernel microbenchmark (D-031) and generality on a second model (D-032); see
+Not yet entries: batched prefill (D-029, if D-028 triggers it) and generality on a second model (D-032); see
 `docs/roadmap.md`.
 
 ## Principles
@@ -2106,6 +2107,170 @@ Not yet entries: batched prefill (D-029, if D-028 triggers it), the matched same
   has 15.7 GB of memory, short of the roughly 15 GB the four model copies need; the session script
   `deploy/gpu_d033.sh` is written and waits for the machine.
 - **Time box:** about half a day of work and one short GPU session (it can share the D-028 session).
+- **Measured effect:** none yet.
+
+### D-030 The matched, same-session comparison with vLLM (PLANNED, criteria and predictions fixed before any code or run)
+
+- **Status:** planned 2026-11-25; **nothing built or run.** Follows from the second review (S2-1, S2-2,
+  S2-4, S2-5). It runs after D-028, and after D-029 if D-028 triggers it, so that it measures the final
+  engine (the commit id is recorded in every result).
+- **What is wrong with the figures we have.** The gap to vLLM is quoted from three different sessions
+  and two different settings: vLLM with 32 sequences (59.6 req/s) against the engine with 64; at 64
+  sequences vLLM delivered at least 82.6 req/s, but that run was flagged load-generator-saturated and
+  has one seed (D-019). The 2.1 times over "the gather path" is against the engine's first, deliberately
+  simple path, which pads every sequence to the longest in the batch. The load generator is one Python
+  process and it is itself the limit near 60 to 80 req/s, so the fastest system may be measured at the
+  generator's capacity and not its own. The gather arm hit a 997-request in-flight ceiling (D-021; an
+  open-file limit is the probable cause, not confirmed), which can bite every system at an offered rate
+  well above capacity.
+- **Question.** In one session, on one machine, with one workload and one load generator that is not
+  the bottleneck, how do the final engine and vLLM compare in capacity (requests and tokens per second
+  at saturation) and in latency at a load both sustain, and how much of the difference is accounted
+  for by vLLM's CUDA graphs and by the engine's own first gather path?
+- **Arms (all bf16, the same model and workload, the sweep tool's standard workload, prompt median
+  256, output median 128, `ignore_eos`, 60 s of arrivals, seeds 0 to 3):**
+  E, the engine with the Triton kernel and CUDA graphs, batch 64, 8 GB cache (plus whatever D-029
+  adds); G, the engine's gather path, batch 64 (the denominator of the old "2.1 times", now in the
+  same session); V64, vLLM 0.34.0 with defaults and 64 sequences; V32, the same with 32 sequences;
+  VE, vLLM with 64 sequences and `--enforce-eager` (the graphs-off control). vLLM's other defaults stay
+  (chunked prefill and prefix caching on, `--max-model-len 4096`, memory fraction 0.85); the table of
+  what is and is not matched (vLLM has chunked prefill, fused kernels and its own scheduler; the
+  engine has none of these) is part of the result, so the comparison is "this engine against vLLM as it
+  ships", not "the same features".
+- **A length-bucketed gather arm (S2-2) is optional and the rule is fixed now:** it is built only if it
+  takes at most one day (decode sequences grouped into at most three length buckets, one gather
+  forward pass each, fp32 outputs identical to the unbucketed path, tests first). If it is not built,
+  the README and STATUS say "2.1 times the engine's first gather path, which pads every sequence to
+  the longest in the batch" wherever the 2.1 appears, and the missing arm is listed as a limit.
+- **The load generator (S2-5).** `bench.loadgen` gains `--shards K`: K processes, shard `i` sends the
+  requests whose index modulo K is `i`, each at the request's original absolute arrival time against
+  a start time given by the parent, so the arrival process and the workload are exactly the ones of the
+  single process; the results are merged into one file. Each process records its event-loop lag
+  (a 10 ms timer, its lateness), alongside the existing send lag. The summary gains the **steady-state
+  window** (completed requests per second by completion time between 15 s and 50 s, the window of
+  D-021) and the in-flight peak. Default K is 8 or half the machine's cores, whichever is smaller.
+  **Step 0 of the session, before any arm:** the sharded generator against the engine's mock backend
+  (no GPU work) at 192 req/s for 30 s must show event-loop lag p99 at most 25 ms and send lag p99
+  at most 50 ms in every shard; if not, K is raised once; if it still fails, the vLLM arms are reported
+  as lower bounds and no ratio to vLLM is quoted.
+- **Open-file limit (D-021).** The session raises the soft limit (`ulimit -n`) to the hard limit or
+  65,536, whichever is smaller, **before** starting any server or generator, and records the soft and
+  hard limits seen by the server and by the generator (the sweep manifest gets the field). A run whose
+  in-flight peak exceeds 80% of the smaller limit is flagged ceiling-limited and excluded from
+  the ratios.
+- **Offered rate: at least 1.5 times each system's own capacity (S2-4).** Stage 1, one probe per arm
+  with seed 0, offered at E 64, G 32, V64 192, V32 128, VE 96 req/s; if a probe's delivered rate is
+  more than offered divided by 1.5, that probe was not saturating and is repeated once at twice the rate.
+  Stage 2, the arms' offered rate is 1.5 times the probe's delivered rate, rounded up to a multiple of 4
+  (the probe's seed-0 figure is not reused as a result). The rates are written in the result and are
+  not changed afterwards.
+- **Latency at a common load (part 2).** E, G and V64 at 8 req/s offered (all three keep up), seeds 0
+  to 3: time to first token and inter-token latency, p50 and p99.
+- **Order and hygiene.** Interleaved by seed (within a seed the arms run in a rotating order), a fresh
+  server per run, the self-test before every seed, the machine monitor and audit throughout, a clean
+  audit required. Session A: step 0, the probes, E, G and V64 (the headline); session B: V32, VE and
+  part 2. If only one session is possible, session A alone is the result and the others are listed
+  as not done. About 2.5 hours of machine time in total.
+- **Valid run (all required, fixed now):** the generator's event-loop lag p99 at most 25 ms and send lag
+  p99 at most 50 ms in every shard; not ceiling-limited; offered at least 1.4 times the run's delivered
+  rate (the 1.5 target with a little room); the machine audit clean. An invalid run stays in the
+  table, flagged, and is not used. An arm with fewer than three valid seeds is reported as unresolved.
+- **Primary metric:** delivered requests per second in the steady-state window, paired by seed;
+  reported beside it: the whole-run figure, tokens per second, ok over sent, the spread across
+  seeds. The ratio vLLM64 over E is the headline, as the mean of the four per-seed ratios with the
+  minimum and maximum.
+- **Predictions, written now (I expect to be wrong somewhere):** (1) vLLM64 delivers 85 to 100 req/s in
+  the window, V32 58 to 66, VE 40 to 60; (2) E delivers 28 to 33 (D-020 diagnostic, steady 30.4)
+  without D-029, up to 38 with it; (3) G delivers 14 to 17; (4) so **the ratio V64 over E is 2.5 to
+  3.5 without D-029 (2 to 3 with it) and E over G is 1.8 to 2.3**; (5) at 8 req/s the engine's inter-token
+  latency p50 is 9 to 11 ms against vLLM's 2 to 4 ms and its time to first token p50 is within 3 times
+  of vLLM's; (6) the sharded generator removes the saturation flag from every vLLM run.
+- **How the ratio is stated, fixed now:** V64 over E at most 1.25 (every seed): "within 25% of vLLM";
+  above 1.25 and at most 2.0: "within a factor of two"; above 2.0: "more than twice behind", and the
+  README says so with the measured figure. No sentence may say "comparable", "close" or "matches"
+  vLLM for any ratio above 1.25. The project's claim in that case is the rest: the engine's own
+  progress (E over G), a gap that is measured, explained and bounded, and the engine's design.
+- **Interpretation, fixed now:** a ratio above 2.5 after D-029 means the remaining gap is the per-step
+  cost (vLLM's fused kernels, FlashAttention-style attention, a leaner Python loop and, for prefill,
+  chunking), not paging or scheduling; the next experiment is D-031 (is the kernel the lever?) and
+  D-028's decode share, and then **the speed work stops** (the cut line of the roadmap) and the gap
+  is reported with its decomposition. A ratio of 2.0 to 2.5: one more lever may be worth a plan; ask
+  the owner. A ratio below 2.0 changes the story and the README. If VE is within 20% of E, the gap is
+  mostly vLLM's graphs, which the engine now has as well. If E over G is below 1.6, the "2.1 times" is
+  withdrawn and replaced by the new figure.
+- **Limits stated now:** one model, one GPU, one synthetic workload shape without shared prefixes (the
+  prefix workload is D-005's and D-022's), random token ids as prompts, vLLM at defaults (not tuned for
+  this workload; its own tuning guide may find more), a generator that shares the machine's cores
+  with the server.
+- **Build (after the plan, each with tests and deliberate breakages):** the sharded generator and its
+  merge, the lag probe, the steady-window and in-flight metrics; the fd-limit field in the sweep
+  manifest; `bench/matched_report.py` (validity rules, windows, paired ratios, the predictions beside
+  the measurements); `deploy/gpu_d030_a.sh` and `gpu_d030_b.sh`; the optional bucketed gather.
+- **Measured effect:** none yet.
+
+### D-031 Is the decode-attention kernel the lever? Its efficiency in isolation and against other implementations (PLANNED, criteria and predictions fixed before any code or run)
+
+- **Status:** planned 2026-11-25; **nothing built or run.** Follows from the second review (S2-12): the
+  kernel (D-025) has end-to-end evidence only (the real-mix step 52% shorter, throughput 1.4 to 1.55
+  times), no isolated figure of how well it uses the GPU, no comparison with another implementation,
+  and it is a simple form (one program per sequence and key-value head, two warps, a serial walk
+  along the blocks, plain multiply-and-sum instead of `tl.dot`). Optional: only if time remains after
+  D-030 (the cut line of the roadmap).
+- **Question.** (a) What fraction of the card's memory bandwidth does the kernel reach at the shapes the
+  engine runs, and how much of a decode step is it now? (b) How does it compare with the gather path it
+  replaced, with PyTorch's attention on contiguous keys and values, and with a production paged
+  decode kernel? (c) Do the two simple levers, the warp count and splitting a long sequence across
+  programs (split-KV, as in Flash-Decoding), change the time?
+- **Design.** A new tool, `bench.kernel_microbench`, one GPU session of about 30 minutes, self-test
+  and monitor as always. Shapes of Llama-3.2-1B: 32 query heads, 8 key-value heads (group 4), head
+  size 64, block 16, bf16 pool; 16 layers. Cases: uniform contexts of 128, 512, 1,024, 2,048 and 4,096
+  tokens at batch 1, 8, 32 and 64; and the **real mix**, the contexts of the D-021 mix seeds at batch
+  60 (the lengths the saturated server really runs). Timing: CUDA graph replay of 50 launches (no
+  launch overhead), CUDA events, the L2 cache flushed between repetitions with a 256 MB write (the
+  RTX 5090's L2 is 96 MB), 20 warm-up and 200 timed repetitions, median and the 10th and 90th
+  percentiles; the warm-L2 figure is also reported. Bytes: the minimum a decode step must read, the
+  sum over sequences of context times 2 (keys and values) times 8 heads times 64 times 2 bytes;
+  achieved GB/s is that over the time. Two rooflines: the card's specified bandwidth (1,792 GB/s) and the
+  **measured** device-to-device copy bandwidth in the same session, which is the reachable one, and
+  the fraction of each is reported.
+- **Implementations compared (same inputs, same seeds):** the engine's current kernel; the gather path
+  (gather into padded tensors, then PyTorch attention) which is what it replaced; PyTorch
+  `scaled_dot_product_attention` on contiguous padded keys and values (an upper bound that skips the
+  gather); the engine's kernel with 1, 2 (current), 4 and 8 warps; **a split-KV variant** (the blocks of
+  a sequence divided over P programs, 1, 2, 4 or 8 of them, and a second small kernel that combines
+  the partial softmax results), which is new code; and, if they install within 15 minutes each, the
+  paged decode of **FlashAttention** (the copy bundled with the vLLM environment, whose
+  `flash_attn_with_kvcache` takes a block table) and **FlashInfer**'s. Whatever does not install is
+  listed as not available with the reason; it is not substituted.
+- **Correctness gate for every variant (before it is timed):** against the float64 reference
+  `decode_attention_reference` of `engine/paged_attention.py`, maximum absolute error in fp32 at most 1e-5 and, in bf16, at most 2
+  times the engine kernel's own error on the same inputs. A variant that fails is reported as failed
+  and not timed; the split-KV variant also has CPU tests (its partial results combined in float64 equal
+  the unsplit result) and deliberate breakages before it ever runs on the GPU.
+- **Predictions, written now:** (1) at batch 64 on the real mix the current kernel reaches 15 to 40%
+  of the measured copy bandwidth (512 programs of a serial loop on 170 multiprocessors; fp32 multiply-
+  and-sum), and less than 5% at batch 1 (8 programs); (2) in isolation it is at least 3 times faster than
+  the gather path at batch 64 on the real mix; (3) split-KV is at least 2 times faster than the current
+  kernel at batch 8 or less with contexts of 1,024 or more, and within 10% of it at batch 64; (4) the
+  best warp count is within 15% of 2 at batch 64; (5) the FlashAttention paged decode, if available,
+  is 1.5 to 4 times faster than the current kernel at batch 64; (6) at batch 64 on the real mix the kernel
+  takes 0.7 to 2 ms a step (16 layers), 10 to 25% of the 7.8 ms graph step of D-020.
+- **Interpretation and decision rules, fixed now.** The lever test: let `t` be the best variant's time
+  for one layer on the real mix at batch 60 and `s` the engine's decode step with graphs on the same
+  mix (D-020's 7.8 ms, remeasured in the session). If `16 t / s` for the current kernel is at most
+  0.15, even an infinitely fast kernel gives at most 1.18 times on decode, so attention is **not** the
+  lever and the result is reported as that; the step's remaining time is GEMMs, the rest of the
+  layers and the loop. If it is above 0.15 and the best variant is at least 1.15 times faster than the current
+  one at batch 64 on the real mix (every variant that passed its gate), the variant is a candidate:
+  adopting it needs its own plan and the gates of D-025 and D-020 again (fp32 identity with Hugging
+  Face, then the KL tool of D-033 for bf16), not a quiet switch. Predictions (1) to (6) are each
+  recorded as held or missed. If the kernel reaches more than 60% of the measured bandwidth already,
+  the result says the kernel is close to what the card allows at these shapes.
+- **Limits stated now:** one card, one model's shapes, a microbenchmark (not the end-to-end speed), the
+  copy bandwidth as the practical roofline (it is not a proof of what attention could reach), the
+  production kernels' versions as installed that day (recorded), and no claim about other GPUs.
+- **Time box:** about one day of work (the tool, the split-KV variant with its CPU tests) and one
+  short session; dropped without a result if D-030 has not been done.
 - **Measured effect:** none yet.
 
 ## Open verification items

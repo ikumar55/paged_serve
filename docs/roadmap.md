@@ -28,6 +28,9 @@ the usual determinism self-test and with the machine monitor on. Ship the code w
 
 After these, phase 3 of "Plan from here" below (batched prefill if triggered, the matched same-session
 vLLM comparison, D-023, the router on real replicas, the kernel microbenchmark) needs the machine too.
+**Planned on 2026-11-25 but not yet runnable (their tools must be built first):** D-030, the matched
+vLLM comparison (two sessions, about 2.5 hours in all, after D-028 and D-029 if triggered) and D-031,
+the kernel microbenchmark (about 30 minutes, optional, after D-030).
 
 ## How this roadmap is used (working rules)
 
@@ -134,7 +137,7 @@ remains. If the machine stays unavailable, phase 2 can be done first.
 | 8 | What paging buys (raised by the independent review) | review, **D-023** | **Pre-registered (D-023); no run yet** | Run the block-size experiment at a binding memory budget |
 | 9 | Review findings | `docs/independent-review-2026-11-24.md`, `docs/second-review-2026-11-24.md` | Tracked there | Follow their status tables |
 | 10 | Cleanup of the shared benchmark machine | STATUS section 6, item 13 | Pending | Delete `~/pagedserve_work` after the last GPU work, and confirm the home directory is back to baseline |
-| 11 | Matched same-session vLLM comparison (second review S2-1, S2-2, S2-4, S2-5) | second review, **D-030 (to plan)** | Not planned yet | vLLM at 32 and 64 sequences, every system offered at least 1.5 times capacity, a load generator that is not the bottleneck, a length-bucketed gather arm, **the open-file limit recorded and raised (`ulimit -n`) for every system** (the gather arm hit a 997-request ceiling), a steady-state window reported next to the whole-run figure; interleaved by seed in one session; after D-029 if that is triggered |
+| 11 | Matched same-session vLLM comparison (second review S2-1, S2-2, S2-4, S2-5) | second review, **D-030** | **Planned 2026-11-25** (arms E, G, V64, V32, VE; probe then 1.5 times capacity; a sharded generator; valid-run rules; the ratio's wording fixed); nothing built or run. Build first: `--shards` in `bench.loadgen`, steady-window and in-flight metrics, `bench/matched_report.py`, two session scripts | vLLM at 32 and 64 sequences, every system offered at least 1.5 times capacity, a load generator that is not the bottleneck, a length-bucketed gather arm, **the open-file limit recorded and raised (`ulimit -n`) for every system** (the gather arm hit a 997-request ceiling), a steady-state window reported next to the whole-run figure; interleaved by seed in one session; after D-029 if that is triggered |
 | 12 | Credibility sweep (S2-3, S2-7, S2-9, S2-10, S2-11, S2-16, S2-18) | second review | Not started; phase 2, no machine needed | Push and CI, commit ids in results, ConnectError cause, README cut, decision-log summary table, a sensitive bf16 accuracy tool (KL or perplexity) |
-| 13 | Kernel microbenchmark (S2-12) | second review, **D-031 (to plan)** | Not planned yet | GB/s against the card's peak, comparison with PyTorch attention (and FlashInfer or flash-attn if they install), split-KV and autotuning tried; only if time remains |
+| 13 | Kernel microbenchmark (S2-12) | second review, **D-031** | **Planned 2026-11-25** (GB/s against the measured copy bandwidth, the gather path, PyTorch attention, FlashAttention and FlashInfer if they install, warp counts, split-KV; a lever test); optional, after D-030; nothing built or run | GB/s against the card's peak, comparison with PyTorch attention (and FlashInfer or flash-attn if they install), split-KV and autotuning tried; only if time remains |
 | 14 | Generality on a second model or GPU class with real text (S2-15) | second review, **D-032 (to plan)** | Not planned yet; stretch, phase 4 | Repeat the kernel-plus-graphs comparison on one more model, EOS-terminated lengths |

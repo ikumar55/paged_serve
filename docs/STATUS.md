@@ -335,9 +335,11 @@ copies, D-028 and the open-file limit): the checklist with scripts and timings i
    times the gather path at saturation. **Next:** the phased plan in `docs/roadmap.md` (Plan from
    here, proposed after the second review): D-028 and the D-027 rerun in one machine session; then,
    without the machine, the credibility sweep and the Docker and Kubernetes files; then batched
-   prefill (D-029) if D-028 triggers it, the matched same-session vLLM comparison (D-030), what
-   paging buys (D-023) and the router on real replicas (D-022); stretch: the simulator and a second
-   model. Chunked prefill (Sarathi-Serve) only if long prompts hurt decode latency.
+   prefill (D-029) if D-028 triggers it, the matched same-session vLLM comparison (**D-030, planned
+   2026-11-25**: five arms, a sharded load generator to build first, valid-run rules and the wording of
+   the ratio fixed in advance; nothing built or run), what paging buys (D-023) and the router on real
+   replicas (D-022); the kernel microbenchmark (**D-031, planned 2026-11-25**, optional, after D-030);
+   stretch: the simulator and a second model. Chunked prefill (Sarathi-Serve) only if long prompts hurt decode latency.
 5. **Deployment:** Dockerfiles and Kubernetes manifests in `deploy/` (cannot be tested without
    Docker or a cluster; mark them untested if written without one).
 6. **Decide the D-011 extension** (serving simulator, which needs the calibrated mock, or a
