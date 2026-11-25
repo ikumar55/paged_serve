@@ -290,6 +290,10 @@ session.
 
 ## 7. Suggested next steps, in order
 
+**First, the outstanding machine runs** (the D-027 rerun, the D-033 accuracy run with its four model
+copies, D-028 and the open-file limit): the checklist with scripts and timings is at the top of
+`docs/roadmap.md`. None has been run; they wait for the GPU machine.
+
 1. ~~**Router policy comparison on a mock fleet.**~~ **Done** (`bench/router_compare.py`, five
    result files, D-007), including the load cap sweep and the poll interval test. Still needed
    before it counts as the CPU-only router gate: a Linux machine and more seeds (the Windows laptop

@@ -9,6 +9,25 @@ document: update the status column as work lands.
 
 Last updated: 2026-11-24 (evening).
 
+## Outstanding machine runs (do not forget; update this list whenever a run is done or added)
+
+Everything below is built, tested on the CPU and has a session script; **none has been run**, because the
+GPU machine has not been available since 2026-11-24. They can share one session, in this order, after
+the usual determinism self-test and with the machine monitor on. Ship the code with the docs:
+`git archive --format=tar.gz -o d025-code.tgz HEAD engine bench tests router deploy docs README.md pyproject.toml`
+(the D-033 text comes from `docs/` and `README.md`), plus `tmp/COMMIT`.
+
+| # | Run | Script | About | What it settles |
+| ---: | --- | --- | --- | --- |
+| 1 | **D-027 rerun** with the graphs' replay counts recorded | `TAG=d027-2 PREFIX=graphs2-rtx5090 bash deploy/gpu_d027.sh` | 3 min | that the graph variants were really replayed with padding rows (the first run's files do not show it) |
+| 2 | **D-033 accuracy run, with four model copies** (Hugging Face fp32 and bf16, the engine's fp32 and bf16: about 15 GB, which this laptop cannot hold) | `bash deploy/gpu_d033.sh` (then `WIDE=1 bash deploy/gpu_d033.sh` only if the result is inconclusive) | 5 to 10 min | KL and perplexity of the gather, kernel and graph paths against Hugging Face fp32 on real text; criteria (i) to (iv) of D-033 |
+| 3 | **D-028 attribution**: where the saturated engine thread's time goes with the kernel and graphs, at 32 and 48 req/s offered | `bash deploy/gpu_d028.sh` | 20 to 25 min | whether admission (prefill) is at least 20% of the step, which decides batched prefill (D-029) |
+| 4 | **Read the open-file limit** on the machine (`ulimit -n`, and `cat /proc/<engine pid>/limits` during a run) and record it | one command, in any session | 1 min | confirms or refutes the 997-request in-flight ceiling (strongly supported, not confirmed) |
+| 5 | **Cleanup of the shared machine** (`~/pagedserve_work`) | roadmap item 10 | 5 min | the standing duty; only after the last GPU work, and the machine was not in the fleet listing on 2026-11-24 |
+
+After these, phase 3 of "Plan from here" below (batched prefill if triggered, the matched same-session
+vLLM comparison, D-023, the router on real replicas, the kernel microbenchmark) needs the machine too.
+
 ## How this roadmap is used (working rules)
 
 1. **One item at a time.** Exactly one row is "current". Nothing else is built or measured until it
